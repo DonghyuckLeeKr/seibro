@@ -1,0 +1,23 @@
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Node / Next.js
+**/node_modules/
+web/.next/
+web/out/
+web/.vercel/
+
+# Env / local
+web/.env*
+.env*
+
+# Logs
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+**/pnpm-debug.log*
+
+
