@@ -18,7 +18,6 @@ type ApiResult = {
 const batchApiIds = [
   "getBondStatInfo",
   "getIntPayInfo",
-  "getBondOptionXrcInfo",
   "getCDInfo",
   "getCPInfo",
   "getESTBInfo",
@@ -26,15 +25,23 @@ const batchApiIds = [
 
 type BatchApiId = typeof batchApiIds[number];
 
+const batchApiDisplayName: Record<BatchApiId, string> = {
+  getBondStatInfo: "채권 종목 정보",
+  getIntPayInfo: "이자지급 정보",
+  getCDInfo: "CD 정보",
+  getCPInfo: "CP 정보",
+  getESTBInfo: "전자단기사채 정보",
+};
+
 type ApiStatusValue = {
-  status: "loading" | "success" | "error" | "empty";
+  status: "idle" | "loading" | "success" | "error" | "empty";
   count: number;
   message?: string;
 };
 
-function makeInitialApiStatus(): Record<BatchApiId, ApiStatusValue> {
+function makeInitialApiStatus(initial: ApiStatusValue["status"] = "idle"): Record<BatchApiId, ApiStatusValue> {
   return batchApiIds.reduce((acc, id) => {
-    acc[id] = { status: "loading", count: 0 };
+    acc[id] = { status: initial, count: 0 };
     return acc;
   }, {} as Record<BatchApiId, ApiStatusValue>);
 }
@@ -253,7 +260,8 @@ export default function SeibroPage() {
   const [error, setError] = useState<string | null>(null);
   const [health, setHealth] = useState<{ ok: boolean; hasKey: boolean } | null>(null);
   const [rows, setRows] = useState<Array<Record<string, string>> | null>(null);
-  const [parseType, setParseType] = useState<"xml" | "json" | "text">("text");
+  const [batchTables, setBatchTables] = useState<Array<{ id: BatchApiId; name: string; rows: Array<Record<string, string>> }> | null>(null);
+  const [parseType, setParseType] = useState<"xml" | "json" | "text" | "batch">("text");
   const [emptyNotice, setEmptyNotice] = useState<string | null>(null);
   const [mode, setMode] = useState<"batch" | "single">("batch");
 
@@ -262,6 +270,7 @@ export default function SeibroPage() {
     setError(null);
     setResult(null);
     setRows(null);
+    setBatchTables(null);
     setParseType("text");
     setEmptyNotice(null);
   }
@@ -279,6 +288,7 @@ export default function SeibroPage() {
       setError(null);
       setResult(null);
       setRows(null);
+      setBatchTables(null);
       setEmptyNotice(null);
       const res = await fetch("/api/seibro", {
         method: "POST",
@@ -355,17 +365,13 @@ export default function SeibroPage() {
           </div>
         )}
         {mode === "batch" && (
-          <BatchCard onDone={(merged) => {
-            if (!merged || merged.length === 0) {
-              setEmptyNotice("데이터가 없습니다.");
-              setRows(null);
-              setResult(null);
-              return;
-            }
-            setEmptyNotice(null);
-            setRows(merged);
-            setResult({ ok: true, status: 200, headers: {}, body: JSON.stringify({ merged }, null, 2) });
-            setParseType("json");
+          <BatchCard onDone={(tables) => {
+            const hasData = tables.some((table) => table.rows.length > 0);
+            setEmptyNotice(hasData ? null : "데이터가 없습니다.");
+            setRows(null);
+            setBatchTables(tables);
+            setResult({ ok: true, status: 200, headers: {}, body: JSON.stringify({ tables }, null, 2) });
+            setParseType("batch");
           }} />
         )}
         <div className="rounded-lg border p-4 bg-white dark:bg-neutral-900 shadow-sm">
@@ -384,9 +390,24 @@ export default function SeibroPage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="text-xs text-neutral-500 dark:text-neutral-400">status: {result.status}</div>
-                {rows && <div className="text-xs text-neutral-500 dark:text-neutral-400">rows: {rows.length} • parsed: {parseType}</div>}
+                <div className="text-xs text-neutral-500 dark:text-neutral-400">
+                  rows: {(batchTables ? batchTables.reduce((sum, t) => sum + t.rows.length, 0) : rows?.length || 0)} • parsed: {parseType}
+                </div>
               </div>
-              {rows && rows.length > 0 ? (
+              {batchTables && batchTables.length > 0 ? (
+                <div className="space-y-6">
+                  {batchTables.map((table) => (
+                    <div key={table.id} className="space-y-2">
+                      <h4 className="text-sm font-semibold">{table.name}</h4>
+                      {table.rows.length > 0 ? (
+                        <DataGrid rows={table.rows} />
+                      ) : (
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400 border rounded-md p-3">데이터 없음</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : rows && rows.length > 0 ? (
                 <DataGrid rows={rows} />
               ) : (
                 <pre className="text-xs overflow-auto whitespace-pre-wrap break-words bg-neutral-50 dark:bg-neutral-900 p-3 rounded border">
@@ -414,6 +435,14 @@ function DataGrid({ rows }: { rows: Array<Record<string, string>> }) {
   const [hideEmpty, setHideEmpty] = useState(true);
   // selection is tracked by normalized keys (suffix after '.') to avoid duplicates
   const [selectedColumns, setSelectedColumns] = useState<string[] | null>(null);
+
+  const LABEL_OVERRIDES: Record<string, string> = {
+    API: "API",
+    순번: "순번",
+    상태: "상태",
+    error_code: "오류 코드",
+    error_message: "오류 메시지",
+  };
 
   const columns = useMemo(() => {
     return Array.from(
@@ -569,6 +598,19 @@ function DataGrid({ rows }: { rows: Array<Record<string, string>> }) {
     return Array.from(set);
   }, [selectedColumns, previewColumns, hideEmpty, nonEmptyRows, preferColumn]);
 
+  const displayLabel = (key: string) => {
+    if (LABEL_OVERRIDES[key]) return LABEL_OVERRIDES[key];
+    const normalized = normalize(key);
+    if (LABEL_OVERRIDES[normalized]) return LABEL_OVERRIDES[normalized];
+    const label = labelForKey(normalized);
+    return label || normalized;
+  };
+
+  const displayValue = (key: string, value: string) => {
+    const normalized = normalize(key);
+    return formatValue(normalized, value);
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -620,10 +662,10 @@ function DataGrid({ rows }: { rows: Array<Record<string, string>> }) {
                   key={col}
                   className="px-3 py-2 text-left font-semibold border-b cursor-pointer select-none"
                   onClick={() => onSort(col)}
-                  title={`정렬: ${normalize(col)}`}
+                  title={`정렬: ${displayLabel(col)}`}
                 >
                   <div className="flex items-center gap-1">
-                    <span title={normalize(col)}>{labelForKey(normalize(col))}</span>
+                    <span title={displayLabel(col)}>{displayLabel(col)}</span>
                     {sortKey && normalize(sortKey) === normalize(col) && (
                       <span className="text-xs">{sortDir === "asc" ? "▲" : "▼"}</span>
                     )}
@@ -642,7 +684,7 @@ function DataGrid({ rows }: { rows: Array<Record<string, string>> }) {
                       const norm = normalize(c);
                       const pref = preferColumn.get(norm) || c;
                       const val = r[pref] ?? Object.entries(r).find(([k]) => normalize(k) === norm)?.[1] ?? "";
-                      return formatValue(norm, String(val));
+                      return displayValue(norm, String(val));
                     })()}
                   </td>
                 ))}
@@ -676,8 +718,8 @@ function DataGrid({ rows }: { rows: Array<Record<string, string>> }) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {columns.filter((c) => (detailRow?.[c] ?? "").toString().trim() !== "").map((c) => (
                 <div key={c} className="rounded-md border p-3">
-                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{labelForKey(c)}</div>
-                  <div className="text-sm break-words">{formatValue(c, detailRow[c] ?? "")}</div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">{displayLabel(c)}</div>
+                  <div className="text-sm break-words">{displayValue(c, detailRow[c] ?? "")}</div>
                 </div>
               ))}
             </div>
@@ -688,16 +730,18 @@ function DataGrid({ rows }: { rows: Array<Record<string, string>> }) {
   );
 }
 
-function BatchCard({ onDone }: { onDone: (rows: Array<Record<string, string>>) => void }) {
+type BatchTable = { id: BatchApiId; name: string; rows: Array<Record<string, string>> };
+
+function BatchCard({ onDone }: { onDone: (tables: BatchTable[]) => void }) {
   const [isin, setIsin] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [apiStatus, setApiStatus] = useState<Record<BatchApiId, ApiStatusValue>>(() => makeInitialApiStatus());
+  const [apiStatus, setApiStatus] = useState<Record<BatchApiId, ApiStatusValue>>(() => makeInitialApiStatus("idle"));
 
   async function run() {
     setLoading(true);
     setError(null);
-    const initialStatus = makeInitialApiStatus();
+    const initialStatus = makeInitialApiStatus("loading");
     setApiStatus(initialStatus);
 
     try {
@@ -716,17 +760,24 @@ function BatchCard({ onDone }: { onDone: (rows: Array<Record<string, string>>) =
         body: JSON.stringify({ requests: reqs }),
       });
       const data = (await res.json()) as { results?: { apiId: string; ok: boolean; status: number; body: string }[] };
-      const merged: Array<Record<string, string>> = [];
+      const tableMap = new Map<BatchApiId, { id: BatchApiId; name: string; rows: Array<Record<string, string>> }>();
+      const ensureTable = (apiKey: BatchApiId) => {
+        if (!tableMap.has(apiKey)) {
+          tableMap.set(apiKey, { id: apiKey, name: batchApiDisplayName[apiKey], rows: [] });
+        }
+        return tableMap.get(apiKey)!;
+      };
       const statusUpdate = { ...initialStatus };
 
       if (data.results && Array.isArray(data.results)) {
         for (const r of data.results) {
           const apiKey = r.apiId as BatchApiId;
+          const apiName = batchApiDisplayName[apiKey] ?? apiKey;
 
           if (!r.ok || r.status !== 200) {
             const message = `HTTP ${r.status}`;
             statusUpdate[apiKey] = { status: "error", count: 0, message };
-            merged.push({ [`${r.apiId}.status`]: message });
+            ensureTable(apiKey).rows.push({ API: apiName, 상태: message });
             continue;
           }
 
@@ -738,7 +789,7 @@ function BatchCard({ onDone }: { onDone: (rows: Array<Record<string, string>>) =
             if (xmlError.code) errorRow[`${r.apiId}.error_code`] = xmlError.code;
             if (xmlError.message) errorRow[`${r.apiId}.error_message`] = xmlError.message;
             if (Object.keys(errorRow).length === 0) errorRow[`${r.apiId}.status`] = message;
-            merged.push(errorRow);
+            ensureTable(apiKey).rows.push({ API: apiName, ...errorRow });
             continue;
           }
 
@@ -746,27 +797,46 @@ function BatchCard({ onDone }: { onDone: (rows: Array<Record<string, string>>) =
 
           if (!parsed.rows || parsed.rows.length === 0) {
             statusUpdate[apiKey] = { status: "empty", count: 0, message: "데이터 없음" };
-            merged.push({ [`${r.apiId}.status`]: "데이터 없음" });
+            ensureTable(apiKey).rows.push({ API: apiName, 상태: "데이터 없음" });
+            continue;
+          }
+
+          const table = ensureTable(apiKey);
+          const cleanedRows = parsed.rows
+            .map((row, index) => {
+              const meaningfulEntries = Object.entries(row).filter(([, v]) => v != null && String(v).trim() !== "");
+              if (meaningfulEntries.length === 0) {
+                return null;
+              }
+              const prefixed: Record<string, string> = {
+                API: apiName,
+                순번: String(index + 1),
+              };
+              for (const [k, v] of meaningfulEntries) {
+                prefixed[`${r.apiId}.${k}`] = String(v);
+              }
+              return prefixed;
+            })
+            .filter((row): row is Record<string, string> => row !== null);
+
+          if (cleanedRows.length === 0) {
+            statusUpdate[apiKey] = { status: "empty", count: 0, message: "데이터 없음" };
+            table.rows.push({ API: apiName, 상태: "데이터 없음" });
             continue;
           }
 
           statusUpdate[apiKey] = {
             status: "success",
-            count: parsed.rows.length,
-            message: `${parsed.rows.length}건`,
+            count: cleanedRows.length,
+            message: `${cleanedRows.length}건`,
           };
-
-          const row = parsed.rows[0];
-          const prefixed: Record<string, string> = {};
-          for (const [k, v] of Object.entries(row)) {
-            prefixed[`${r.apiId}.${k}`] = v;
-          }
-          merged.push(prefixed);
+          cleanedRows.forEach((row) => table.rows.push(row));
         }
       }
 
       setApiStatus(statusUpdate);
-      onDone(merged);
+      const tables = batchApiIds.map((id) => tableMap.get(id) ?? { id, name: batchApiDisplayName[id], rows: [] });
+      onDone(tables);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "요청 실패");
     } finally {
@@ -777,7 +847,6 @@ function BatchCard({ onDone }: { onDone: (rows: Array<Record<string, string>>) =
   const apiList: Array<{ id: BatchApiId; name: string }> = [
     { id: "getBondStatInfo", name: "채권 종목 정보" },
     { id: "getIntPayInfo", name: "이자지급 정보" },
-    { id: "getBondOptionXrcInfo", name: "조기상환 정보" },
     { id: "getCDInfo", name: "CD 정보" },
     { id: "getCPInfo", name: "CP 정보" },
     { id: "getESTBInfo", name: "전자단기사채 정보" },
@@ -787,7 +856,7 @@ function BatchCard({ onDone }: { onDone: (rows: Array<Record<string, string>>) =
     <div className="rounded-lg border p-4 bg-white dark:bg-neutral-900 shadow-sm">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold">통합 조회 (ISIN)</h3>
-        <div className="text-xs text-neutral-500 dark:text-neutral-400">6개 API 병렬 조회</div>
+        <div className="text-xs text-neutral-500 dark:text-neutral-400">5개 API 순차 큐 조회</div>
       </div>
       <div className="flex gap-2">
         <Input placeholder="ISIN 입력" value={isin} onChange={(e) => setIsin(e.target.value)} />
@@ -805,7 +874,8 @@ function BatchCard({ onDone }: { onDone: (rows: Array<Record<string, string>>) =
             success: <span className="inline-block w-2 h-2 bg-green-500 rounded-full" />,
             error: <span className="inline-block w-2 h-2 bg-red-500 rounded-full" />,
             empty: <span className="inline-block w-2 h-2 bg-gray-400 rounded-full" />,
-          }[status?.status || 'loading'];
+            idle: <span className="inline-block w-2 h-2 bg-gray-500/80 rounded-full" />,
+          }[status?.status || 'idle'];
 
           return (
             <div key={api.id} className="flex items-center justify-between text-xs">
@@ -817,13 +887,15 @@ function BatchCard({ onDone }: { onDone: (rows: Array<Record<string, string>>) =
                 status?.status === 'success' ? 'text-green-600 dark:text-green-400' :
                 status?.status === 'error' ? 'text-red-600 dark:text-red-400' :
                 status?.status === 'empty' ? 'text-neutral-500 dark:text-neutral-400' :
-                'text-yellow-600 dark:text-yellow-400'
+                status?.status === 'loading' ? 'text-yellow-600 dark:text-yellow-400' :
+                'text-neutral-500 dark:text-neutral-400'
               }`}>
                 {status?.message ??
                   (status?.status === 'success' ? `${status.count}건` :
                    status?.status === 'error' ? '에러' :
                    status?.status === 'empty' ? '데이터 없음' :
-                   '조회중...')}
+                   status?.status === 'loading' ? '조회중...' :
+                   '대기중')}
               </span>
             </div>
           );

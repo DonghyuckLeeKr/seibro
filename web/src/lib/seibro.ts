@@ -140,4 +140,14 @@ export function isYYYYMMDD(value: string): boolean {
   return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
 }
 
+export const batchApiIds = [
+  "getBondStatInfo",
+  "getIntPayInfo",
+  "getCDInfo",
+  "getCPInfo",
+  "getESTBInfo",
+] as const;
+
+export type BatchApiId = typeof batchApiIds[number];
+
 
