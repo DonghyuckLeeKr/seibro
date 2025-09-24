@@ -15,6 +15,30 @@ type ApiResult = {
   body: string;
 };
 
+const batchApiIds = [
+  "getBondStatInfo",
+  "getIntPayInfo",
+  "getBondOptionXrcInfo",
+  "getCDInfo",
+  "getCPInfo",
+  "getESTBInfo",
+] as const;
+
+type BatchApiId = typeof batchApiIds[number];
+
+type ApiStatusValue = {
+  status: "loading" | "success" | "error" | "empty";
+  count: number;
+  message?: string;
+};
+
+function makeInitialApiStatus(): Record<BatchApiId, ApiStatusValue> {
+  return batchApiIds.reduce((acc, id) => {
+    acc[id] = { status: "loading", count: 0 };
+    return acc;
+  }, {} as Record<BatchApiId, ApiStatusValue>);
+}
+
 function parseXmlToRows(xmlText: string): Array<Record<string, string>> | null {
   try {
     const parser = new DOMParser();
@@ -118,6 +142,27 @@ function parseBodyToRows(text: string): { rows: Array<Record<string, string>> | 
   const xmlRows = parseXmlToRows(text);
   if (xmlRows && xmlRows.length > 0) return { rows: xmlRows, type: "xml" };
   return { rows: null, type: "text" };
+}
+
+function extractXmlErrorInfo(xmlText: string): { code?: string; message?: string } | null {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlText, "application/xml");
+    if (doc.getElementsByTagName("parsererror").length > 0) return null;
+    const header = doc.getElementsByTagName("header")[0];
+    if (!header) return null;
+    const errorEl = header.getElementsByTagName("error")[0];
+    if (!errorEl) return null;
+    const codeEl = errorEl.getElementsByTagName("code")[0];
+    const contentEl = errorEl.getElementsByTagName("content")[0];
+    const code = codeEl?.getAttribute("value") || codeEl?.textContent || undefined;
+    const message =
+      contentEl?.getAttribute("value") || contentEl?.textContent || undefined;
+    if (!code && !message) return null;
+    return { code, message };
+  } catch {
+    return null;
+  }
 }
 
 function FieldInput({ api, name, value, onChange }: { api: ApiDefinition; name: string; value: string; onChange: (v: string) => void }) {
@@ -384,14 +429,14 @@ function DataGrid({ rows }: { rows: Array<Record<string, string>> }) {
     const i = c.lastIndexOf(".");
     return i >= 0 ? c.slice(i + 1) : c;
   };
-  const apiPrefOrder = [
+  const apiPrefOrder = useMemo(() => [
     "getBondStatInfo",
     "getCPInfo",
     "getCDInfo",
     "getESTBInfo",
     "getIntPayInfo",
     "getBondOptionXrcInfo",
-  ];
+  ], []);
   const preferColumn = useMemo(() => {
     const map = new Map<string, string>(); // normalized -> preferred original key
     for (const c of columns) {
@@ -647,10 +692,14 @@ function BatchCard({ onDone }: { onDone: (rows: Array<Record<string, string>>) =
   const [isin, setIsin] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [apiStatus, setApiStatus] = useState<Record<BatchApiId, ApiStatusValue>>(() => makeInitialApiStatus());
 
   async function run() {
     setLoading(true);
     setError(null);
+    const initialStatus = makeInitialApiStatus();
+    setApiStatus(initialStatus);
+
     try {
       if (!isin.trim()) throw new Error("ISIN을 입력하세요");
       const reqs = [
@@ -668,20 +717,55 @@ function BatchCard({ onDone }: { onDone: (rows: Array<Record<string, string>>) =
       });
       const data = (await res.json()) as { results?: { apiId: string; ok: boolean; status: number; body: string }[] };
       const merged: Array<Record<string, string>> = [];
+      const statusUpdate = { ...initialStatus };
+
       if (data.results && Array.isArray(data.results)) {
         for (const r of data.results) {
-          const parsed = parseBodyToRows(r.body);
-          if (parsed.rows && parsed.rows.length > 0) {
-            // 각 API의 첫 row만 대표로 병합하고, API명 접두사 추가
-            const row = parsed.rows[0];
-            const prefixed: Record<string, string> = {};
-            for (const [k, v] of Object.entries(row)) {
-              prefixed[`${r.apiId}.${k}`] = v;
-            }
-            merged.push(prefixed);
+          const apiKey = r.apiId as BatchApiId;
+
+          if (!r.ok || r.status !== 200) {
+            const message = `HTTP ${r.status}`;
+            statusUpdate[apiKey] = { status: "error", count: 0, message };
+            merged.push({ [`${r.apiId}.status`]: message });
+            continue;
           }
+
+          const xmlError = extractXmlErrorInfo(r.body);
+          if (xmlError) {
+            const message = xmlError.message || (xmlError.code ? `코드 ${xmlError.code}` : "API 오류");
+            statusUpdate[apiKey] = { status: "error", count: 0, message };
+            const errorRow: Record<string, string> = {};
+            if (xmlError.code) errorRow[`${r.apiId}.error_code`] = xmlError.code;
+            if (xmlError.message) errorRow[`${r.apiId}.error_message`] = xmlError.message;
+            if (Object.keys(errorRow).length === 0) errorRow[`${r.apiId}.status`] = message;
+            merged.push(errorRow);
+            continue;
+          }
+
+          const parsed = parseBodyToRows(r.body);
+
+          if (!parsed.rows || parsed.rows.length === 0) {
+            statusUpdate[apiKey] = { status: "empty", count: 0, message: "데이터 없음" };
+            merged.push({ [`${r.apiId}.status`]: "데이터 없음" });
+            continue;
+          }
+
+          statusUpdate[apiKey] = {
+            status: "success",
+            count: parsed.rows.length,
+            message: `${parsed.rows.length}건`,
+          };
+
+          const row = parsed.rows[0];
+          const prefixed: Record<string, string> = {};
+          for (const [k, v] of Object.entries(row)) {
+            prefixed[`${r.apiId}.${k}`] = v;
+          }
+          merged.push(prefixed);
         }
       }
+
+      setApiStatus(statusUpdate);
       onDone(merged);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "요청 실패");
@@ -690,17 +774,65 @@ function BatchCard({ onDone }: { onDone: (rows: Array<Record<string, string>>) =
     }
   }
 
+  const apiList: Array<{ id: BatchApiId; name: string }> = [
+    { id: "getBondStatInfo", name: "채권 종목 정보" },
+    { id: "getIntPayInfo", name: "이자지급 정보" },
+    { id: "getBondOptionXrcInfo", name: "조기상환 정보" },
+    { id: "getCDInfo", name: "CD 정보" },
+    { id: "getCPInfo", name: "CP 정보" },
+    { id: "getESTBInfo", name: "전자단기사채 정보" },
+  ];
+
   return (
     <div className="rounded-lg border p-4 bg-white dark:bg-neutral-900 shadow-sm">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold">통합 조회 (ISIN)</h3>
+        <div className="text-xs text-neutral-500 dark:text-neutral-400">6개 API 병렬 조회</div>
       </div>
       <div className="flex gap-2">
         <Input placeholder="ISIN 입력" value={isin} onChange={(e) => setIsin(e.target.value)} />
         <Button onClick={run} disabled={loading}>{loading ? "조회중..." : "조회"}</Button>
       </div>
       {error && <div className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</div>}
-      <div className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">입력한 ISIN으로 6개 API를 병렬 호출해 유의미한 첫 결과를 합쳐서 보여줍니다.</div>
+
+      {/* API별 상태 표시 */}
+      <div className="mt-4 space-y-2">
+        <div className="text-xs font-semibold">API별 조회 상태</div>
+        {apiList.map((api) => {
+          const status = apiStatus[api.id];
+          const statusIcon = {
+            loading: <span className="inline-block w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />,
+            success: <span className="inline-block w-2 h-2 bg-green-500 rounded-full" />,
+            error: <span className="inline-block w-2 h-2 bg-red-500 rounded-full" />,
+            empty: <span className="inline-block w-2 h-2 bg-gray-400 rounded-full" />,
+          }[status?.status || 'loading'];
+
+          return (
+            <div key={api.id} className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                {statusIcon}
+                <span>{api.name}</span>
+              </div>
+              <span className={`${
+                status?.status === 'success' ? 'text-green-600 dark:text-green-400' :
+                status?.status === 'error' ? 'text-red-600 dark:text-red-400' :
+                status?.status === 'empty' ? 'text-neutral-500 dark:text-neutral-400' :
+                'text-yellow-600 dark:text-yellow-400'
+              }`}>
+                {status?.message ??
+                  (status?.status === 'success' ? `${status.count}건` :
+                   status?.status === 'error' ? '에러' :
+                   status?.status === 'empty' ? '데이터 없음' :
+                   '조회중...')}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+        입력한 ISIN으로 6개 API를 병렬 호출해 유의미한 첫 결과를 합쳐서 보여줍니다.
+      </div>
     </div>
   );
 }
