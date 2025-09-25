@@ -350,8 +350,6 @@ function ParamsForm({ api, onSubmit }: { api: ApiDefinition; onSubmit: (params: 
 }
 
 export default function SeibroPage() {
-  const [activeId, setActiveId] = useState<string>(apiList[0].id);
-  const activeApi = useMemo(() => apiList.find((a) => a.id === activeId)!, [activeId]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ApiResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -360,7 +358,6 @@ export default function SeibroPage() {
   const [batchTables, setBatchTables] = useState<Array<{ id: BatchApiId; name: string; rows: Array<Record<string, string>> }> | null>(null);
   const [parseType, setParseType] = useState<"xml" | "json" | "text" | "batch" | "crawl">("text");
   const [emptyNotice, setEmptyNotice] = useState<string | null>(null);
-  const [mode, setMode] = useState<"batch" | "single" | "crawl">("crawl");
 
   function resetOutput() {
     setLoading(false);
@@ -430,73 +427,19 @@ export default function SeibroPage() {
           </div>
         </div>
         <nav className="space-y-1">
-          <button
-            onClick={() => { setMode("batch"); resetOutput(); }}
-            className={`w-full text-left px-3 py-2 rounded-md text-sm ${
-              mode === "batch" ? "bg-indigo-600 text-white" : "hover:bg-neutral-100 dark:hover:bg-neutral-800"
-            }`}
-          >
-            통합 조회 (ISIN)
-          </button>
-          <button
-            onClick={() => { setMode("crawl"); resetOutput(); }}
-            className={`w-full text-left px-3 py-2 rounded-md text-sm ${
-              mode === "crawl" ? "bg-indigo-600 text-white" : "hover:bg-neutral-100 dark:hover:bg-neutral-800"
-            }`}
-          >
-            빠른 조회
-          </button>
-          {apiList.map((api) => (
-            <button
-              key={api.id}
-              onClick={() => { setActiveId(api.id); setMode("single"); resetOutput(); }}
-              className={`w-full text-left px-3 py-2 rounded-md text-sm ${
-                mode === "single" && activeId === api.id ? "bg-indigo-600 text-white" : "hover:bg-neutral-100 dark:hover:bg-neutral-800"
-              }`}
-            >
-              {api.title}
-            </button>
-          ))}
+          <div className="w-full px-3 py-2 rounded-md text-sm bg-indigo-600 text-white">단기금융시장 건별매매내역조회</div>
         </nav>
       </aside>
       <main className="p-6 space-y-6">
         <div className="space-y-2">
           <h1 className="text-xl font-bold">
-            {
-              mode === "batch"
-                ? "통합 조회 (ISIN)"
-                : mode === "crawl"
-                  ? "빠른 조회"
-                  : activeApi.title
-            }
+            단기금융시장 건별매매내역조회
           </h1>
           <p className="text-sm text-muted-foreground">
-            {
-              mode === "batch"
-                ? "입력한 ISIN으로 여러 API를 동시에 조회합니다."
-                : mode === "crawl"
-                  ? "세이브로 내부 API를 직접 호출하는 빠른 조회입니다."
-                  : activeApi.description
-            }
+            세이브로 내부 API를 직접 호출하여 CP/CD/단기사채의 건별 매매내역을 빠르게 조회합니다.
           </p>
         </div>
-        {mode === "single" && (
-          <div className="rounded-lg border p-4 bg-white dark:bg-neutral-900 shadow-sm">
-            <ParamsForm api={activeApi} onSubmit={(params) => call(activeApi.id, params)} />
-          </div>
-        )}
-        {mode === "batch" && (
-          <BatchCard onDone={(tables) => {
-            const hasData = tables.some((table) => table.rows.length > 0);
-            setEmptyNotice(hasData ? null : "데이터가 없습니다.");
-            setRows(null);
-            setBatchTables(tables);
-            setResult({ ok: true, status: 200, headers: {}, body: JSON.stringify({ tables }, null, 2) });
-            setParseType("batch");
-          }} />
-        )}
-        {mode === "crawl" && (
-          <CrawlCard
+        <CrawlCard
             onDone={({ rows: crawlRows, result: crawlResult }) => {
               const hasData = crawlRows.length > 0;
               setEmptyNotice(hasData ? null : "데이터가 없습니다.");
@@ -506,7 +449,6 @@ export default function SeibroPage() {
               setParseType("crawl");
             }}
           />
-        )}
         <div className="rounded-lg border p-4 bg-white dark:bg-neutral-900 shadow-sm">
           <h3 className="font-semibold mb-2">결과</h3>
           {loading && <p className="text-sm text-muted-foreground">불러오는 중...</p>}
@@ -514,9 +456,6 @@ export default function SeibroPage() {
           {!loading && !error && emptyNotice && (
             <div className="flex items-center justify-between">
               <p className="text-sm text-neutral-500 dark:text-neutral-400">{emptyNotice}</p>
-              {mode === "single" && (
-                <Button size="sm" variant="outline" onClick={() => setMode("batch")}>통합 조회로 시도</Button>
-              )}
             </div>
           )}
           {!loading && !error && result && (
@@ -527,25 +466,14 @@ export default function SeibroPage() {
                   rows: {(batchTables ? batchTables.reduce((sum, t) => sum + t.rows.length, 0) : rows?.length || 0)} • parsed: {parseType}
                 </div>
               </div>
-              {batchTables && batchTables.length > 0 ? (
-                <div className="space-y-6">
-                  {batchTables.map((table) => (
-                    <div key={table.id} className="space-y-2">
-                      <h4 className="text-sm font-semibold">{table.name}</h4>
-                      {table.rows.length > 0 ? (
-                        <DataGrid rows={table.rows} />
-                      ) : (
-                        <div className="text-xs text-neutral-500 dark:text-neutral-400 border rounded-md p-3">데이터 없음</div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : rows && rows.length > 0 ? (
+              {rows && rows.length > 0 ? (
                 <DataGrid rows={rows} csvName={parseType === "crawl" ? "seibro-crawl" : undefined} />
-              ) : (
+              ) : parseType !== "crawl" ? (
                 <pre className="text-xs overflow-auto whitespace-pre-wrap break-words bg-neutral-50 dark:bg-neutral-900 p-3 rounded border">
                   {result.body}
                 </pre>
+              ) : (
+                <div className="text-xs text-neutral-500 dark:text-neutral-400 border rounded-md p-3">데이터 없음</div>
               )}
             </div>
           )}
@@ -1120,52 +1048,7 @@ function CrawlCard({ onDone }: CrawlCardProps) {
     setter(digits);
   }
 
-  async function run() {
-    if (!isYYYYMMDD(fromDate) || !isYYYYMMDD(toDate)) {
-      setError("조회기간은 YYYYMMDD 형식이어야 합니다.");
-      return;
-    }
-    try {
-      setLoading(true);
-      setError(null);
-      const res = await fetch("/api/seibro/crawl", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fromDate, toDate }),
-      });
-      const data = (await res.json()) as { rows?: Array<Record<string, unknown>>; error?: string };
-      if (!res.ok || data.error) {
-        throw new Error(data.error || `HTTP ${res.status}`);
-      }
-      const rows = Array.isArray(data.rows)
-        ? data.rows.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, String(v ?? "")])))
-        : [];
-      const counts: Record<string, number> = { CP: 0, CD: 0, 단기사채: 0 };
-      for (const row of rows) {
-        const seg = row.segment ?? row["segment"] ?? row["세그먼트"] ?? row["구분"] ?? "기타";
-        counts[seg] = (counts[seg] ?? 0) + 1;
-      }
-      setSummary(counts);
-      setPreviewRows(rows.slice(0, 5));
-      setLastRunAt(new Date());
-      const body = JSON.stringify({ fromDate, toDate, counts, rows }, null, 2);
-      onDone({
-        rows,
-        result: {
-          ok: true,
-          status: res.status,
-          headers: { "x-source": "crawl" },
-          body,
-        },
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "크롤링 실패");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // Fast: capture+replay 기반 (빠르고 안정적)
+  // Fast: 내부 API 직접 호출
   async function runFast() {
     if (!isYYYYMMDD(fromDate) || !isYYYYMMDD(toDate)) {
       setError("조회기간은 YYYYMMDD 형식이어야 합니다.");
@@ -1188,10 +1071,9 @@ function CrawlCard({ onDone }: CrawlCardProps) {
       setSummary(counts);
       setPreviewRows(rows.slice(0, 5));
       setLastRunAt(new Date());
-      const body = JSON.stringify({ fromDate, toDate, segment, count: rows.length, rows }, null, 2);
       onDone({
         rows,
-        result: { ok: true, status: 200, headers: { "x-source": "fast" }, body },
+        result: { ok: true, status: 200, headers: { "x-source": "fast" }, body: rows.length > 0 ? "OK" : "EMPTY" },
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "빠른 조회 실패");
@@ -1228,8 +1110,8 @@ function CrawlCard({ onDone }: CrawlCardProps) {
     <div className="rounded-lg border p-4 bg-white dark:bg-neutral-900 shadow-sm">
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h3 className="font-semibold">크롤링 조회</h3>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400">CP/CD/단기사채를 순차 조회합니다.</p>
+          <h3 className="font-semibold">단기금융시장 건별매매내역조회</h3>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">조회 기간과 구분을 선택하여 건별 매매내역을 조회합니다.</p>
         </div>
         <Button variant="outline" size="sm" onClick={() => { setFromDate(defaultDate); setToDate(defaultDate); }}>
           전 영업일 적용
@@ -1297,8 +1179,7 @@ function CrawlCard({ onDone }: CrawlCardProps) {
       </div>
       {error && <div className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</div>}
       <div className="mt-4 flex items-center gap-2 flex-wrap">
-        <Button onClick={run} disabled={loading}>{loading ? "크롤링 중..." : "크롤링 조회"}</Button>
-        <Button variant="outline" onClick={runFast} disabled={loading}>{loading ? "조회 중..." : "빠른 조회"}</Button>
+        <Button onClick={runFast} disabled={loading}>{loading ? "조회 중..." : "조회"}</Button>
         <Button variant="outline" onClick={downloadCsvFast} disabled={loading}>CSV 다운로드</Button>
         {lastRunAt && (
           <span className="text-xs text-neutral-500 dark:text-neutral-400">마지막 조회: {lastRunAt.toLocaleString()}</span>
