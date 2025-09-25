@@ -76,6 +76,23 @@ function isAmountField(key: string): boolean {
   return false;
 }
 
+function formatDateYYYYMMDD(date: Date): string {
+  const y = String(date.getFullYear());
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}${m}${d}`;
+}
+
+function previousBusinessDay(baseDate = new Date()): string {
+  const dt = new Date(baseDate);
+  dt.setHours(0, 0, 0, 0);
+  dt.setDate(dt.getDate() - 1);
+  while (dt.getDay() === 0 || dt.getDay() === 6) {
+    dt.setDate(dt.getDate() - 1);
+  }
+  return formatDateYYYYMMDD(dt);
+}
+
 type ApiStatusValue = {
   status: "idle" | "loading" | "success" | "error" | "empty";
   count: number;
@@ -341,9 +358,9 @@ export default function SeibroPage() {
   const [health, setHealth] = useState<{ ok: boolean; hasKey: boolean } | null>(null);
   const [rows, setRows] = useState<Array<Record<string, string>> | null>(null);
   const [batchTables, setBatchTables] = useState<Array<{ id: BatchApiId; name: string; rows: Array<Record<string, string>> }> | null>(null);
-  const [parseType, setParseType] = useState<"xml" | "json" | "text" | "batch">("text");
+  const [parseType, setParseType] = useState<"xml" | "json" | "text" | "batch" | "crawl">("text");
   const [emptyNotice, setEmptyNotice] = useState<string | null>(null);
-  const [mode, setMode] = useState<"batch" | "single">("batch");
+  const [mode, setMode] = useState<"batch" | "single" | "crawl">("batch");
 
   function resetOutput() {
     setLoading(false);
@@ -421,6 +438,14 @@ export default function SeibroPage() {
           >
             통합 조회 (ISIN)
           </button>
+          <button
+            onClick={() => { setMode("crawl"); resetOutput(); }}
+            className={`w-full text-left px-3 py-2 rounded-md text-sm ${
+              mode === "crawl" ? "bg-indigo-600 text-white" : "hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            }`}
+          >
+            크롤링 조회
+          </button>
           {apiList.map((api) => (
             <button
               key={api.id}
@@ -436,8 +461,24 @@ export default function SeibroPage() {
       </aside>
       <main className="p-6 space-y-6">
         <div className="space-y-2">
-          <h1 className="text-xl font-bold">{mode === "batch" ? "통합 조회 (ISIN)" : activeApi.title}</h1>
-          <p className="text-sm text-muted-foreground">{mode === "batch" ? "입력한 ISIN으로 여러 API를 동시에 조회합니다." : activeApi.description}</p>
+          <h1 className="text-xl font-bold">
+            {
+              mode === "batch"
+                ? "통합 조회 (ISIN)"
+                : mode === "crawl"
+                  ? "크롤링 조회"
+                  : activeApi.title
+            }
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {
+              mode === "batch"
+                ? "입력한 ISIN으로 여러 API를 동시에 조회합니다."
+                : mode === "crawl"
+                  ? "세이브로 화면에서 CP/CD/단기사채 데이터를 크롤링해 보여줍니다."
+                  : activeApi.description
+            }
+          </p>
         </div>
         {mode === "single" && (
           <div className="rounded-lg border p-4 bg-white dark:bg-neutral-900 shadow-sm">
@@ -453,6 +494,18 @@ export default function SeibroPage() {
             setResult({ ok: true, status: 200, headers: {}, body: JSON.stringify({ tables }, null, 2) });
             setParseType("batch");
           }} />
+        )}
+        {mode === "crawl" && (
+          <CrawlCard
+            onDone={({ rows: crawlRows, result: crawlResult }) => {
+              const hasData = crawlRows.length > 0;
+              setEmptyNotice(hasData ? null : "데이터가 없습니다.");
+              setBatchTables(null);
+              setRows(crawlRows);
+              setResult(crawlResult);
+              setParseType("crawl");
+            }}
+          />
         )}
         <div className="rounded-lg border p-4 bg-white dark:bg-neutral-900 shadow-sm">
           <h3 className="font-semibold mb-2">결과</h3>
@@ -488,7 +541,7 @@ export default function SeibroPage() {
                   ))}
                 </div>
               ) : rows && rows.length > 0 ? (
-                <DataGrid rows={rows} />
+                <DataGrid rows={rows} csvName={parseType === "crawl" ? "seibro-crawl" : undefined} />
               ) : (
                 <pre className="text-xs overflow-auto whitespace-pre-wrap break-words bg-neutral-50 dark:bg-neutral-900 p-3 rounded border">
                   {result.body}
@@ -505,7 +558,7 @@ export default function SeibroPage() {
   );
 }
 
-function DataGrid({ rows }: { rows: Array<Record<string, string>> }) {
+function DataGrid({ rows, csvName }: { rows: Array<Record<string, string>>; csvName?: string }) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
@@ -657,7 +710,7 @@ function DataGrid({ rows }: { rows: Array<Record<string, string>> }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "seibro-results.csv";
+    a.download = `${csvName || "seibro-results"}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -985,6 +1038,175 @@ function BatchCard({ onDone }: { onDone: (tables: BatchTable[]) => void }) {
         })}
       </div>
 
+    </div>
+  );
+}
+
+type CrawlCardProps = {
+  onDone: (payload: { rows: Array<Record<string, string>>; result: ApiResult }) => void;
+};
+
+function CrawlCard({ onDone }: CrawlCardProps) {
+  const defaultDate = React.useMemo(() => previousBusinessDay(), []);
+  const [fromDate, setFromDate] = useState(defaultDate);
+  const [toDate, setToDate] = useState(defaultDate);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<Record<string, number> | null>(null);
+  const [previewRows, setPreviewRows] = useState<Array<Record<string, string>>>([]);
+  const [lastRunAt, setLastRunAt] = useState<Date | null>(null);
+
+  const segments = [
+    { label: "CP", value: "CP" },
+    { label: "CD", value: "CD" },
+    { label: "단기사채", value: "단기사채" },
+  ] as const;
+
+  const fromIso = React.useMemo(() => (isYYYYMMDD(fromDate) ? `${fromDate.slice(0, 4)}-${fromDate.slice(4, 6)}-${fromDate.slice(6, 8)}` : ""), [fromDate]);
+  const toIso = React.useMemo(() => (isYYYYMMDD(toDate) ? `${toDate.slice(0, 4)}-${toDate.slice(4, 6)}-${toDate.slice(6, 8)}` : ""), [toDate]);
+
+  function handleTextDateInput(value: string, setter: (v: string) => void) {
+    const digits = value.replace(/\D/g, "").slice(0, 8);
+    setter(digits);
+  }
+
+  async function run() {
+    if (!isYYYYMMDD(fromDate) || !isYYYYMMDD(toDate)) {
+      setError("조회기간은 YYYYMMDD 형식이어야 합니다.");
+      return;
+    }
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await fetch("/api/seibro/crawl", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fromDate, toDate }),
+      });
+      const data = (await res.json()) as { rows?: Array<Record<string, unknown>>; error?: string };
+      if (!res.ok || data.error) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      const rows = Array.isArray(data.rows)
+        ? data.rows.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, String(v ?? "")])))
+        : [];
+      const counts: Record<string, number> = { CP: 0, CD: 0, 단기사채: 0 };
+      for (const row of rows) {
+        const seg = row.segment ?? row["segment"] ?? row["세그먼트"] ?? row["구분"] ?? "기타";
+        counts[seg] = (counts[seg] ?? 0) + 1;
+      }
+      setSummary(counts);
+      setPreviewRows(rows.slice(0, 5));
+      setLastRunAt(new Date());
+      const body = JSON.stringify({ fromDate, toDate, counts, rows }, null, 2);
+      onDone({
+        rows,
+        result: {
+          ok: true,
+          status: res.status,
+          headers: { "x-source": "crawl" },
+          body,
+        },
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "크롤링 실패");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border p-4 bg-white dark:bg-neutral-900 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h3 className="font-semibold">크롤링 조회</h3>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">CP/CD/단기사채를 순차 조회합니다.</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => { setFromDate(defaultDate); setToDate(defaultDate); }}>
+          전 영업일 적용
+        </Button>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <label className="text-xs font-medium" htmlFor="crawl-from">조회 시작일</label>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              id="crawl-from"
+              placeholder="YYYYMMDD"
+              value={fromDate}
+              inputMode="numeric"
+              pattern="\d*"
+              maxLength={8}
+              onChange={(e) => handleTextDateInput(e.target.value, setFromDate)}
+            />
+            <div className="sm:w-44">
+              <Input
+                type="date"
+                value={fromIso}
+                onChange={(e) => setFromDate(e.target.value ? e.target.value.replaceAll("-", "") : "")}
+              />
+            </div>
+          </div>
+        </div>
+        <div className="space-y-2">
+          <label className="text-xs font-medium" htmlFor="crawl-to">조회 종료일</label>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              id="crawl-to"
+              placeholder="YYYYMMDD"
+              value={toDate}
+              inputMode="numeric"
+              pattern="\d*"
+              maxLength={8}
+              onChange={(e) => handleTextDateInput(e.target.value, setToDate)}
+            />
+            <div className="sm:w-44">
+              <Input
+                type="date"
+                value={toIso}
+                onChange={(e) => setToDate(e.target.value ? e.target.value.replaceAll("-", "") : "")}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {segments.map((segment) => (
+          <span key={segment.value} className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs">
+            {segment.label}
+          </span>
+        ))}
+      </div>
+      {error && <div className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</div>}
+      <div className="mt-4 flex items-center gap-2">
+        <Button onClick={run} disabled={loading}>{loading ? "크롤링 중..." : "조회"}</Button>
+        {lastRunAt && (
+          <span className="text-xs text-neutral-500 dark:text-neutral-400">마지막 조회: {lastRunAt.toLocaleString()}</span>
+        )}
+      </div>
+      {summary && (
+        <div className="mt-4 text-xs text-neutral-600 dark:text-neutral-400 space-y-1">
+          <div className="font-semibold">세그먼트별 건수</div>
+          {Object.entries(summary).map(([key, value]) => (
+            <div key={key}>{key}: {value}건</div>
+          ))}
+        </div>
+      )}
+      {previewRows.length > 0 && (
+        <div className="mt-4 text-xs text-neutral-600 dark:text-neutral-400 space-y-2">
+          <div className="font-semibold">샘플</div>
+          {previewRows.map((row, idx) => (
+            <div key={idx} className="rounded border px-3 py-2 bg-neutral-50 dark:bg-neutral-900/60">
+              <div className="flex flex-wrap gap-3">
+                <span className="font-medium">{row.segment || row["종목구분"] || "-"}</span>
+                <span>{row["종목명"] || row["종목번호"] || ""}</span>
+                <span>금리 {row["금리"] || "-"}</span>
+                <span>금액 {row["배매금액"] || row["금액"] || "-"}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
