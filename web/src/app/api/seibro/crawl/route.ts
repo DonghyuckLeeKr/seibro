@@ -20,6 +20,7 @@ async function getBrowser(): Promise<Browser> {
       "--disable-dev-shm-usage",
       "--disable-gpu",
       "--disable-features=VizDisplayCompositor",
+      "--ignore-certificate-errors",
     ],
   });
   return browserInstance;
@@ -137,8 +138,8 @@ async function crawl({ fromDate, toDate }: { fromDate: string; toDate: string })
   const page = await context.newPage();
   try {
     // 네트워크가 느린 경우를 위해 타임아웃 보강
-    page.setDefaultTimeout(60000);
-    await page.goto(TARGET_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
+    page.setDefaultTimeout(90000);
+    await page.goto(TARGET_URL, { waitUntil: "domcontentloaded", timeout: 90000 });
     await page.waitForLoadState("networkidle");
 
     await loginIfNeeded(page);

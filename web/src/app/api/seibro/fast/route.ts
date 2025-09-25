@@ -21,7 +21,10 @@ export async function POST(req: NextRequest) {
     }
 
     // 1) Capture the current session requests to get a fresh data call template and cookies
-    const capRes = await fetch("http://localhost:3000/api/seibro/capture", { method: "POST" });
+    const proto = req.headers.get("x-forwarded-proto") || "http";
+    const host = req.headers.get("host") || "localhost:3000";
+    const base = `${proto}://${host}`;
+    const capRes = await fetch(`${base}/api/seibro/capture`, { method: "POST" });
     const cap = await capRes.json();
     if (!cap?.calls?.length) {
       return new Response(JSON.stringify({ error: "capture failed" }), { status: 500 });
@@ -48,7 +51,7 @@ export async function POST(req: NextRequest) {
       cookies: cap.cookies,
     };
 
-    const repRes = await fetch("http://localhost:3000/api/seibro/replay", {
+    const repRes = await fetch(`${base}/api/seibro/replay`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(replayPayload),
