@@ -1298,7 +1298,7 @@ function CrawlCard({ onDone }: CrawlCardProps) {
       {error && <div className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</div>}
       <div className="mt-4 flex items-center gap-2 flex-wrap">
         <Button onClick={run} disabled={loading}>{loading ? "크롤링 중..." : "크롤링 조회"}</Button>
-        <Button variant="secondary" onClick={runFast} disabled={loading}>{loading ? "조회 중..." : "빠른 조회"}</Button>
+        <Button variant="outline" onClick={runFast} disabled={loading}>{loading ? "조회 중..." : "빠른 조회"}</Button>
         <Button variant="outline" onClick={downloadCsvFast} disabled={loading}>CSV 다운로드</Button>
         {lastRunAt && (
           <span className="text-xs text-neutral-500 dark:text-neutral-400">마지막 조회: {lastRunAt.toLocaleString()}</span>
