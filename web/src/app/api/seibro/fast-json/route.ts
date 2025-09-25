@@ -66,17 +66,36 @@ export async function POST(req: NextRequest) {
       return new Response(JSON.stringify({ error: "fromDate/toDate는 YYYYMMDD" }), { status: 400 });
     }
 
-    // Delegate capture+replay to fast endpoint, then parse
-    const res = await fetch("http://localhost:3000/api/seibro/fast", {
+    // Direct POST to SEIBro internal endpoint with constructed XML
+    const SEIBRO_URL = "https://seibro.or.kr/websquare/engine/proworks/callServletService.jsp";
+    // Map segment to SHORTM_FNCEGD_CD (12:CP, 13:CD, 14:단기사채). Empty means 전체
+    const segCode = segment === "CP" ? "12" : segment === "CD" ? "13" : segment === "단기사채" ? "14" : "";
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n` +
+      `<reqParam action="shortmFnceCasebyTdDetailsListEL1" task="ksd.safe.bip.moneyMarke.Trade.process.InstEventPTask">` +
+      `<SHORTM_FNCEGD_CD value="${segCode}"/>` +
+      `<STD_DT_FR value="${from}"/>` +
+      `<STD_DT_TO value="${to}"/>` +
+      `<TD_TPCD value=""/>` +
+      `<SHORTM_FNCE_INDTP_TPCD value=""/>` +
+      `<START_PAGE value="1"/>` +
+      `<END_PAGE value="100"/>` +
+      `<MENU_NO value="943"/>` +
+      `<W2XPATH value="/IPORTAL/user/moneyMarke/BIP_CNTS04033V.xml"/>` +
+      `</reqParam>`;
+
+    const resp = await fetch(SEIBRO_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fromDate: from, toDate: to }),
+      headers: {
+        "Content-Type": "application/xml; charset=UTF-8",
+        Accept: "application/xml",
+        Origin: "https://seibro.or.kr",
+        Referer: "https://seibro.or.kr/websquare/control.jsp?w2xPath=/IPORTAL/user/moneyMarke/BIP_CNTS04033V.xml&menuNo=943",
+        "User-Agent": "Mozilla/5.0 (compatible; seibro-fast-fetch/1.0)",
+      },
+      body: xml,
     });
-    const fast = await res.json();
-    if (!fast?.raw) {
-      return new Response(JSON.stringify({ error: "no data" }), { status: 502 });
-    }
-    const rows = parseDataBlocks(String(fast.raw));
+    const rawText = await resp.text();
+    const rows = parseDataBlocks(String(rawText));
     const filtered = segment ? rows.filter((r) => isMatchSegment(r, segment)) : rows;
 
     return new Response(

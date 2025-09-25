@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
       return new Response("fromDate/toDate는 YYYYMMDD", { status: 400 });
     }
 
-    const res = await fetch("http://localhost:3000/api/seibro/fast-json", {
+    const res = await fetch("/api/seibro/fast-json", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fromDate: from, toDate: to, segment }),

@@ -1,5 +1,5 @@
+// Removed Playwright capture in Vercel mode. Endpoint deprecated.
 import { NextRequest } from "next/server";
-import { chromium, Browser, Page, Request as PWRequest } from "playwright";
 
 type CapturedCall = {
   url: string;
@@ -48,77 +48,7 @@ async function clickSearchIfPresent(page: Page): Promise<void> {
 }
 
 export async function POST(_req: NextRequest) {
-  let page: Page | null = null;
-  const captured: CapturedCall[] = [];
-  try {
-    const browser = await getBrowser();
-    const context = await browser.newContext();
-    page = await context.newPage();
-    page.setDefaultTimeout(60000);
-
-    page.on("requestfinished", async (r: PWRequest) => {
-      try {
-        const url = r.url();
-        if (!url.includes(SERVICE_PATH)) return;
-        const method = r.method();
-        const headers = await r.allHeaders();
-        const postData = r.postData();
-        const res = await r.response();
-        const status = res ? res.status() : null;
-        let snippet: string | null = null;
-        try {
-          if (res) {
-            const text = await res.text();
-            snippet = text.slice(0, 4000);
-          }
-        } catch {
-          snippet = null;
-        }
-        captured.push({
-          url,
-          method,
-          headers,
-          postData: postData ?? null,
-          responseStatus: status,
-          responseBodySnippet: snippet,
-        });
-      } catch {
-        // ignore
-      }
-    });
-
-    await page.goto(TARGET_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
-    await page.waitForLoadState("networkidle");
-
-    // Try triggering a fresh query to ensure a POST occurs
-    await clickSearchIfPresent(page);
-    await page.waitForLoadState("networkidle");
-
-    // Small grace period to ensure all XHRs are flushed
-    await page.waitForTimeout(1500);
-
-    const cookies = await context.cookies("https://seibro.or.kr");
-
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        count: captured.length,
-        calls: captured,
-        cookies,
-      }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
-    );
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "capture failed";
-    return new Response(JSON.stringify({ ok: false, error: msg, calls: captured }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
-  } finally {
-    try {
-      await page?.context().close();
-    } catch {}
-  }
+  return new Response(JSON.stringify({ error: "deprecated in Vercel mode" }), { status: 410 });
 }
 
 

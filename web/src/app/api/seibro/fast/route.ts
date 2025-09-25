@@ -11,6 +11,7 @@ function rewriteDatesInXml(xml: string, fromDate: string, toDate: string): strin
   return out;
 }
 
+// Deprecated: kept temporarily for compatibility. Use fast-json/fast-csv instead.
 export async function POST(req: NextRequest) {
   try {
     const { fromDate, toDate } = (await req.json().catch(() => ({}))) as FastBody;
