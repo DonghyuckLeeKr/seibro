@@ -33,6 +33,49 @@ const batchApiDisplayName: Record<BatchApiId, string> = {
   getESTBInfo: "전자단기사채 정보",
 };
 
+const AMOUNT_FIELD_KEYS = new Set<string>([
+  "AMT",
+  "TOT_AMT",
+  "TOTAMT",
+  "BAL_AMT",
+  "ISSU_AMT",
+  "FIRST_ISSU_AMT",
+  "ISSU_REMA",
+  "PAYIN_AMT",
+  "ERLY_REDAMT",
+  "ERLY_REDAMT_VAL",
+  "INT_PAY_AMT",
+  "FACE_AMT",
+  "SALE_AMT",
+  "PRCP_AMT",
+  "REDEMP_AMT",
+]);
+
+const AMOUNT_LABEL_KEYWORDS = ["금액", "잔액", "액면", "상환액", "발행액", "납입액", "지급액"];
+
+function formatThousands(raw: string): string {
+  if (!raw) return raw;
+  const negative = raw.startsWith("-");
+  const unsigned = negative ? raw.slice(1) : raw;
+  const [intPartRaw, decimalPart] = unsigned.split(".");
+  const intPartNormalized = intPartRaw.replace(/^0+(?=\d)/, "") || "0";
+  const withComma = intPartNormalized.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${negative ? "-" : ""}${withComma}${decimalPart ? `.${decimalPart}` : ""}`;
+}
+
+function isAmountField(key: string): boolean {
+  const upper = key.toUpperCase();
+  if (AMOUNT_FIELD_KEYS.has(upper)) return true;
+  if (/(?:^|_)[A-Z]*AMT(?:$|_)/.test(upper)) return true;
+  const label = labelForKey(upper);
+  if (label && label !== upper) {
+    if (AMOUNT_LABEL_KEYWORDS.some((keyword) => label.includes(keyword))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 type ApiStatusValue = {
   status: "idle" | "loading" | "success" | "error" | "empty";
   count: number;
@@ -195,6 +238,43 @@ function FieldInput({ api, name, value, onChange }: { api: ApiDefinition; name: 
           </option>
         ))}
       </Select>
+    );
+  }
+  if (field.type === "date") {
+    const isoValue = value && /^\d{8}$/.test(value)
+      ? `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`
+      : "";
+    return (
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Input
+          type="text"
+          id={id}
+          name={name}
+          className="w-full"
+          placeholder={field.placeholder ?? "YYYYMMDD"}
+          value={value}
+          inputMode="numeric"
+          pattern="\d*"
+          maxLength={8}
+          onChange={(e) => {
+            const digitsOnly = e.target.value.replace(/\D/g, "");
+            onChange(digitsOnly.slice(0, 8));
+          }}
+        />
+        <div className="sm:w-44">
+          <Input
+            type="date"
+            id={`${id}-picker`}
+            aria-label={`${field.label} 달력 선택`}
+            className="w-full"
+            value={isoValue}
+            onChange={(e) => {
+              const next = e.target.value ? e.target.value.replaceAll("-", "") : "";
+              onChange(next);
+            }}
+          />
+        </div>
+      </div>
     );
   }
   return <Input type="text" {...(common as React.InputHTMLAttributes<HTMLInputElement>)} />;
@@ -550,10 +630,12 @@ function DataGrid({ rows }: { rows: Array<Record<string, string>> }) {
       const d = value.slice(6, 8);
       return `${y}-${m}-${d}`;
     }
-    if (/^-?\d{1,3}(?:,\d{3})*(?:\.\d+)?$/.test(value)) return value;
+    if (/,/.test(value)) return value;
     if (/^-?\d+(?:\.\d+)?$/.test(value)) {
-      const num = Number(value);
-      if (!Number.isNaN(num)) return num.toLocaleString();
+      if (isAmountField(key)) {
+        return formatThousands(value);
+      }
+      return value;
     }
     return value;
   }
@@ -859,9 +941,10 @@ function BatchCard({ onDone }: { onDone: (tables: BatchTable[]) => void }) {
         <div className="text-xs text-neutral-500 dark:text-neutral-400">5개 API 순차 큐 조회</div>
       </div>
       <div className="flex gap-2">
-        <Input placeholder="ISIN 입력" value={isin} onChange={(e) => setIsin(e.target.value)} />
+        <Input placeholder="예: KR6268761881" value={isin} onChange={(e) => setIsin(e.target.value)} />
         <Button onClick={run} disabled={loading}>{loading ? "조회중..." : "조회"}</Button>
       </div>
+      <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">채권번호(ISIN) 예시: KR6268761881</p>
       {error && <div className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</div>}
 
       {/* API별 상태 표시 */}
@@ -902,9 +985,6 @@ function BatchCard({ onDone }: { onDone: (tables: BatchTable[]) => void }) {
         })}
       </div>
 
-      <div className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
-        입력한 ISIN으로 6개 API를 병렬 호출해 유의미한 첫 결과를 합쳐서 보여줍니다.
-      </div>
     </div>
   );
 }
