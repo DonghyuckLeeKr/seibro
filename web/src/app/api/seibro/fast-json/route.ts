@@ -81,14 +81,14 @@ export async function POST(req: NextRequest) {
       `<W2XPATH value="/IPORTAL/user/moneyMarke/BIP_CNTS04033V.xml"/>`;
 
     const xmlPrimary = `<?xml version="1.0" encoding="UTF-8"?>\n` +
-      `<reqParam action="shortmFnceCasebyTdDetailsListEL1" task="ksd.safe.bip.moneyMarke.Trade.process.InstEventPTask">` +
+      `<reqParam action="shortmFnceCasebyTdDetailsListEL1" task="ksd.safe.bip.cnts.MoneyMarke.process.ShortmFncegdStatPTask">` +
       `<SHORTM_FNCEGD_CD value="${segCode}"/>` +
       `<STD_DT_FR value="${from}"/>` +
       `<STD_DT_TO value="${to}"/>` +
       COMMON_SUFFIX +
       `</reqParam>`;
     const xmlAlt = `<?xml version="1.0" encoding="UTF-8"?>\n` +
-      `<reqParam action="shortmFnceCasebyTdDetailsList" task="ksd.safe.bip.moneyMarke.Trade.process.InstEventPTask">` +
+      `<reqParam action="shortmFnceCasebyTdDetailsList" task="ksd.safe.bip.cnts.MoneyMarke.process.ShortmFncegdStatPTask">` +
       `<SHORTM_FNCEGD_CD value="${segCode}"/>` +
       `<STD_DT_FR value="${from}"/>` +
       `<STD_DT_TO value="${to}"/>` +

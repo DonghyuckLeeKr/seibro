@@ -77,7 +77,46 @@ async function main() {
   }
   await delay(5000);
 
-  console.log(JSON.stringify({ from, to, segment, captured: calls.slice(-3) }, null, 2));
+  // Prefer only the data calls
+  const dataCalls = calls.filter(c => /shortmFnceCasebyTdDetailsList/.test(String(c.postData)));
+
+  // If still nothing, issue an in-page fetch to the engine endpoint with the expected XML
+  let synthetic = null;
+  if (dataCalls.length === 0) {
+    try {
+      const segMap = { 'CP': '12', 'CD': '13', '단기사채': '14', '': '' };
+      const segCode = segMap[segment] ?? '';
+      synthetic = await page.evaluate(async ({ from, to, segCode }) => {
+        const SEIBRO_BASE = 'https://seibro.or.kr';
+        const url = SEIBRO_BASE + '/websquare/engine/proworks/callServletService.jsp';
+        const COMMON = '<TD_TPCD value=""/>' +
+          '<SHORTM_FNCE_INDTP_TPCD value=""/>' +
+          '<START_PAGE value="1"/>' +
+          '<END_PAGE value="10"/>' +
+          '<MENU_NO value="943"/>' +
+          '<CMM_BTN_ABBR_NM value="total_search,openall,print,hwp,word,pdf,seach,xls,"/>' +
+          '<W2XPATH value="/IPORTAL/user/moneyMarke/BIP_CNTS04033V.xml"/>';
+        const xml = '<?xml version="1.0" encoding="UTF-8"?>' +
+          '<reqParam action="shortmFnceCasebyTdDetailsListEL1" task="ksd.safe.bip.moneyMarke.Trade.process.InstEventPTask">' +
+          `<SHORTM_FNCEGD_CD value="${segCode}"/>` +
+          `<STD_DT_FR value="${from}"/>` +
+          `<STD_DT_TO value="${to}"/>` +
+          COMMON +
+          '</reqParam>';
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/xml; charset="UTF-8"', 'Accept': 'application/xml' },
+          body: xml,
+        });
+        const text = await res.text();
+        return { status: res.status, textSample: text.slice(0, 600) };
+      }, { from, to, segCode });
+    } catch (e) {
+      synthetic = { error: String(e) };
+    }
+  }
+
+  console.log(JSON.stringify({ from, to, segment, captured: dataCalls, synthetic }, null, 2));
   await browser.close();
 }
 
