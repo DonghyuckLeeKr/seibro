@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
       .join("; ");
 
     // 2) Data POST
-    const resp = await fetch(SEIBRO_URL, {
+    const doPost = async (seg: string) => fetch(SEIBRO_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/xml; charset=UTF-8",
@@ -107,10 +107,20 @@ export async function POST(req: NextRequest) {
         "User-Agent": "Mozilla/5.0 (compatible; seibro-fast-fetch/1.0)",
         ...(cookieHeader ? { Cookie: cookieHeader } : {}),
       },
-      body: xml,
+      body: xml.replace(`<SHORTM_FNCEGD_CD value="${segCode}"/>`, `<SHORTM_FNCEGD_CD value="${seg}"/>`),
     });
-    const rawText = await resp.text();
-    const rows = parseDataBlocks(String(rawText));
+    
+    // 2a) primary request
+    let resp = await doPost(segCode);
+    let rawText = await resp.text();
+    let rows = parseDataBlocks(String(rawText));
+    
+    // 2b) fallback: if no rows returned, try without segment filter (server-side)
+    if (!rows || rows.length === 0) {
+      resp = await doPost("");
+      rawText = await resp.text();
+      rows = parseDataBlocks(String(rawText));
+    }
     const filtered = segment ? rows.filter((r) => isMatchSegment(r, segment)) : rows;
 
     return new Response(
