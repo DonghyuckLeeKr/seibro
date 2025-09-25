@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
       `<TD_TPCD value=""/>` +
       `<SHORTM_FNCE_INDTP_TPCD value=""/>` +
       `<START_PAGE value="1"/>` +
-      `<END_PAGE value="10"/>` +
+      `<END_PAGE value="2000"/>` +
       `<MENU_NO value="943"/>` +
       `<CMM_BTN_ABBR_NM value="total_search,openall,print,hwp,word,pdf,seach,xls,"/>` +
       `<W2XPATH value="/IPORTAL/user/moneyMarke/BIP_CNTS04033V.xml"/>`;
@@ -118,7 +118,9 @@ export async function POST(req: NextRequest) {
         "User-Agent": "Mozilla/5.0 (compatible; seibro-fast-fetch/1.0)",
         ...(cookieHeader ? { Cookie: cookieHeader } : {}),
       },
-      body: xmlBody.replace(`<SHORTM_FNCEGD_CD value=\"${segCode}\"/>`, `<SHORTM_FNCEGD_CD value=\"${seg}\"/>`),
+      body: (seg === "")
+        ? xmlBody.replace(`<SHORTM_FNCEGD_CD value=\"${segCode}\"/>`, "")
+        : xmlBody.replace(`<SHORTM_FNCEGD_CD value=\"${segCode}\"/>`, `<SHORTM_FNCEGD_CD value=\"${seg}\"/>`),
     });
     
     // 2a) primary request
