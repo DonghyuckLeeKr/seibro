@@ -360,7 +360,7 @@ export default function SeibroPage() {
   const [batchTables, setBatchTables] = useState<Array<{ id: BatchApiId; name: string; rows: Array<Record<string, string>> }> | null>(null);
   const [parseType, setParseType] = useState<"xml" | "json" | "text" | "batch" | "crawl">("text");
   const [emptyNotice, setEmptyNotice] = useState<string | null>(null);
-  const [mode, setMode] = useState<"batch" | "single" | "crawl">("batch");
+  const [mode, setMode] = useState<"batch" | "single" | "crawl">("crawl");
 
   function resetOutput() {
     setLoading(false);
@@ -586,6 +586,38 @@ function DataGrid({ rows, csvName }: { rows: Array<Record<string, string>>; csvN
     );
   }, [rows]);
 
+  // Preferred order and labels for money market table (fast-json/fast-csv alignment)
+  const PREFERRED_COLUMNS = [
+    "STD_DT",
+    "SELLER_INDTP_TPCD_NM",
+    "BUYER_INDTP_TPCD_NM",
+    "CUR_CD",
+    "SETL_AMT",
+    "CIRCL_PRATE",
+    "SHORTM_FNCEGD_CD_NM",
+    "ISIN",
+    "SECN_NM",
+    "ISSU_DT",
+    "RED_DT",
+    "GOODS_LEF_XPIR_TPCD_NM",
+    "NUM",
+  ];
+  const LABEL_MAP: Record<string, string> = {
+    STD_DT: "기준일자",
+    SELLER_INDTP_TPCD_NM: "매도유형",
+    BUYER_INDTP_TPCD_NM: "매수유형",
+    CUR_CD: "통화",
+    SETL_AMT: "매매금액",
+    CIRCL_PRATE: "금리",
+    SHORTM_FNCEGD_CD_NM: "증권구분",
+    ISIN: "종목번호",
+    SECN_NM: "종목명",
+    ISSU_DT: "발행일",
+    RED_DT: "만기일",
+    GOODS_LEF_XPIR_TPCD_NM: "잔존만기",
+    NUM: "순번",
+  };
+
   // normalize helper and preferred column map for batch results
   const normalize = (c: string) => {
     const i = c.lastIndexOf(".");
@@ -717,11 +749,27 @@ function DataGrid({ rows, csvName }: { rows: Array<Record<string, string>>; csvN
 
   // computed columns to render
   const renderColumns = useMemo(() => {
+    // Build candidate columns based on selection/preview
     const baseNorm = selectedColumns && selectedColumns.length > 0 ? selectedColumns : previewColumns;
     const mapped = baseNorm.map((n) => preferColumn.get(n) || n);
-    if (!hideEmpty) return Array.from(new Set(mapped));
-    const set = new Set<string>();
+    // Enforce preferred order first when present in dataset
+    const present = new Set(mapped.map((c) => normalize(c)));
+    const preferredFirst: string[] = [];
+    for (const key of PREFERRED_COLUMNS) {
+      if (present.has(key)) {
+        const original = preferColumn.get(key) || key;
+        preferredFirst.push(original);
+      }
+    }
+    // Append the rest
     for (const original of mapped) {
+      const norm = normalize(original);
+      if (!PREFERRED_COLUMNS.includes(norm)) preferredFirst.push(original);
+    }
+    // Optionally hide empty columns
+    if (!hideEmpty) return Array.from(new Set(preferredFirst));
+    const set = new Set<string>();
+    for (const original of preferredFirst) {
       const norm = normalize(original);
       const hasValue = nonEmptyRows.some((r) => {
         const pref = preferColumn.get(norm) || original;
@@ -736,6 +784,7 @@ function DataGrid({ rows, csvName }: { rows: Array<Record<string, string>>; csvN
   const displayLabel = (key: string) => {
     if (LABEL_OVERRIDES[key]) return LABEL_OVERRIDES[key];
     const normalized = normalize(key);
+    if (LABEL_MAP[normalized]) return LABEL_MAP[normalized];
     if (LABEL_OVERRIDES[normalized]) return LABEL_OVERRIDES[normalized];
     const label = labelForKey(normalized);
     return label || normalized;
@@ -1050,6 +1099,7 @@ function CrawlCard({ onDone }: CrawlCardProps) {
   const defaultDate = React.useMemo(() => previousBusinessDay(), []);
   const [fromDate, setFromDate] = useState(defaultDate);
   const [toDate, setToDate] = useState(defaultDate);
+  const [segment, setSegment] = useState<string>("CP");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<Record<string, number> | null>(null);
@@ -1115,6 +1165,65 @@ function CrawlCard({ onDone }: CrawlCardProps) {
     }
   }
 
+  // Fast: capture+replay 기반 (빠르고 안정적)
+  async function runFast() {
+    if (!isYYYYMMDD(fromDate) || !isYYYYMMDD(toDate)) {
+      setError("조회기간은 YYYYMMDD 형식이어야 합니다.");
+      return;
+    }
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await fetch("/api/seibro/fast-json", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fromDate, toDate, segment }),
+      });
+      const data = (await res.json()) as { ok?: boolean; count?: number; rows?: Array<Record<string, string>>; error?: string };
+      if (!res.ok || data.error) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      const rows = Array.isArray(data.rows) ? data.rows : [];
+      const counts: Record<string, number> = { [segment || "전체"]: rows.length } as Record<string, number>;
+      setSummary(counts);
+      setPreviewRows(rows.slice(0, 5));
+      setLastRunAt(new Date());
+      const body = JSON.stringify({ fromDate, toDate, segment, count: rows.length, rows }, null, 2);
+      onDone({
+        rows,
+        result: { ok: true, status: 200, headers: { "x-source": "fast" }, body },
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "빠른 조회 실패");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function downloadCsvFast() {
+    if (!isYYYYMMDD(fromDate) || !isYYYYMMDD(toDate)) {
+      setError("조회기간은 YYYYMMDD 형식이어야 합니다.");
+      return;
+    }
+    try {
+      setError(null);
+      const res = await fetch("/api/seibro/fast-csv", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fromDate, toDate, segment }),
+      });
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `seibro_${fromDate}_${toDate}_${segment || "ALL"}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "CSV 다운로드 실패");
+    }
+  }
+
   return (
     <div className="rounded-lg border p-4 bg-white dark:bg-neutral-900 shadow-sm">
       <div className="flex items-center justify-between mb-3">
@@ -1171,15 +1280,26 @@ function CrawlCard({ onDone }: CrawlCardProps) {
         </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
-        {segments.map((segment) => (
-          <span key={segment.value} className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs">
-            {segment.label}
-          </span>
+        {segments.map((s) => (
+          <label key={s.value} className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs cursor-pointer">
+            <input
+              type="radio"
+              name="segment"
+              checked={segment === s.value}
+              onChange={() => setSegment(s.value)}
+            />
+            {s.label}
+          </label>
         ))}
+        <label className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs cursor-pointer">
+          <input type="radio" name="segment" checked={segment === ""} onChange={() => setSegment("")} /> 전체
+        </label>
       </div>
       {error && <div className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</div>}
-      <div className="mt-4 flex items-center gap-2">
-        <Button onClick={run} disabled={loading}>{loading ? "크롤링 중..." : "조회"}</Button>
+      <div className="mt-4 flex items-center gap-2 flex-wrap">
+        <Button onClick={run} disabled={loading}>{loading ? "크롤링 중..." : "크롤링 조회"}</Button>
+        <Button variant="secondary" onClick={runFast} disabled={loading}>{loading ? "조회 중..." : "빠른 조회"}</Button>
+        <Button variant="outline" onClick={downloadCsvFast} disabled={loading}>CSV 다운로드</Button>
         {lastRunAt && (
           <span className="text-xs text-neutral-500 dark:text-neutral-400">마지막 조회: {lastRunAt.toLocaleString()}</span>
         )}
