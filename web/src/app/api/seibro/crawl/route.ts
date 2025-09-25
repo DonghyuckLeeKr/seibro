@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { chromium, Browser, Page } from "playwright";
+import { chromium, Browser, Page, Frame, Locator } from "playwright";
 
 // 파싱 결과를 유연하게 담기 위한 타입(강한 키 검사 회피)
 type Row = Record<string, string>;
@@ -49,27 +49,66 @@ async function loginIfNeeded(page: Page): Promise<void> {
   }
 }
 
+// 주어진 셀렉터를 페이지와 모든 프레임에서 찾아 첫 번째 Locator 반환
+async function getLocatorInAnyFrame(page: Page, selector: string, timeoutMs = 60000): Promise<Locator> {
+  const deadline = Date.now() + timeoutMs;
+  // 반복적으로 탐색(프레임 지연 로드 대응)
+  /* eslint-disable no-await-in-loop */
+  while (Date.now() < deadline) {
+    // 1) 페이지 직하 탐색
+    const direct = page.locator(selector);
+    if (await direct.count()) {
+      return direct;
+    }
+    // 2) 모든 프레임 탐색
+    const frames: Frame[] = page.frames();
+    for (const frame of frames) {
+      const loc = frame.locator(selector);
+      if (await loc.count()) {
+        return loc;
+      }
+    }
+    // 프레임 추가 로드를 위해 잠시 대기
+    await page.waitForTimeout(250);
+  }
+  // 최종 실패 시(호출부에서 waitFor로 다시 한 번 보장)
+  return page.locator(selector);
+}
+
 async function selectDate(page: Page, fromDate: string, toDate: string) {
-  await page.locator("input[id*='FROM_DT']").fill(fromDate);
-  await page.locator("input[id*='TO_DT']").fill(toDate);
+  // 프레임/리소스 로드 대기 강화
+  await page.waitForLoadState("domcontentloaded");
+  await page.waitForLoadState("networkidle");
+  // 최소 1개의 iframe이 있을 수 있으므로 잠깐 대기(없어도 통과)
+  await page.waitForSelector("iframe", { timeout: 10000 }).catch(() => undefined);
+
+  const fromInput = await getLocatorInAnyFrame(page, "input[id*='FROM_DT']");
+  await fromInput.waitFor({ state: "visible", timeout: 60000 });
+  await fromInput.fill(fromDate);
+
+  const toInput = await getLocatorInAnyFrame(page, "input[id*='TO_DT']");
+  await toInput.waitFor({ state: "visible", timeout: 60000 });
+  await toInput.fill(toDate);
 }
 
 async function selectSegmentAndSearch(page: Page, segmentLabel: string) {
-  const segmentLocator = page.locator("label", { hasText: segmentLabel });
-  if (await segmentLocator.count()) {
-    await segmentLocator.first().click();
+  // 버튼/라벨도 프레임 안에 있을 수 있으므로 프레임 포함 탐색
+  const segment = await getLocatorInAnyFrame(page, `label:has-text("${segmentLabel}")`);
+  if (await segment.count()) {
+    await segment.first().click();
   }
-  const searchButton = page.locator("button", { hasText: "조회" });
+  const searchButton = await getLocatorInAnyFrame(page, "button:has-text('조회')");
   await searchButton.click();
   await page.waitForLoadState("networkidle");
 }
 
 async function extractTable(page: Page, segment: string): Promise<Row[]> {
   const rows: Row[] = [];
-  const table = page.locator("table").first();
-  const rowCount = await table.locator("tbody tr").count();
+  // 표 또한 프레임 내부 가능 → 모든 프레임에서 첫 테이블 탐색
+  const tableLocator = await getLocatorInAnyFrame(page, "table");
+  const rowCount = await tableLocator.locator("tbody tr").count();
   for (let i = 0; i < rowCount; i += 1) {
-    const rowLocator = table.locator("tbody tr").nth(i);
+    const rowLocator = tableLocator.locator("tbody tr").nth(i);
     const cells = await rowLocator.locator("td").allInnerTexts();
     if (!cells.length) continue;
     // 순번은 사용하지 않으므로 건너뜀
@@ -99,8 +138,10 @@ async function crawl({ fromDate, toDate }: { fromDate: string; toDate: string })
   const page = await context.newPage();
   try {
     // 네트워크가 느린 경우를 위해 타임아웃 보강
-    page.setDefaultTimeout(30000);
-    await page.goto(TARGET_URL, { waitUntil: "networkidle", timeout: 30000 });
+    page.setDefaultTimeout(60000);
+    await page.goto(TARGET_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForLoadState("networkidle");
+
     await loginIfNeeded(page);
     await selectDate(page, fromDate, toDate);
 
