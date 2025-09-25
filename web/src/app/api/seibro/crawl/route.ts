@@ -13,7 +13,6 @@ type CrawledRow = {
   종목번호: string;
   종목명: string;
   발행일: string;
-  만기일: string;
   잔존만기: string;
 };
 
@@ -24,8 +23,16 @@ async function getBrowser(): Promise<Browser> {
   if (browserInstance) {
     return browserInstance;
   }
+  // 컨테이너(railway) 환경 대응: 샌드박스 비활성화 및 기본 안정화 옵션 적용
   browserInstance = await chromium.launch({
     headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-features=VizDisplayCompositor",
+    ],
   });
   return browserInstance;
 }
@@ -102,7 +109,9 @@ async function crawl({ fromDate, toDate }: { fromDate: string; toDate: string })
   const context = await browser.newContext();
   const page = await context.newPage();
   try {
-    await page.goto(TARGET_URL, { waitUntil: "networkidle" });
+    // 네트워크가 느린 경우를 위해 타임아웃 보강
+    page.setDefaultTimeout(30000);
+    await page.goto(TARGET_URL, { waitUntil: "networkidle", timeout: 30000 });
     await loginIfNeeded(page);
     await selectDate(page, fromDate, toDate);
 
