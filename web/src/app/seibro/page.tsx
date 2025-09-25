@@ -350,6 +350,9 @@ function ParamsForm({ api, onSubmit }: { api: ApiDefinition; onSubmit: (params: 
 }
 
 export default function SeibroPage() {
+  const [activeId, setActiveId] = useState<string>(apiList[0].id);
+  const activeApi = useMemo(() => apiList.find((a) => a.id === activeId)!, [activeId]);
+  const [mode, setMode] = useState<"fast" | "batch" | "single">("fast");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ApiResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -427,19 +430,65 @@ export default function SeibroPage() {
           </div>
         </div>
         <nav className="space-y-1">
-          <div className="w-full px-3 py-2 rounded-md text-sm bg-indigo-600 text-white">단기금융시장 건별매매내역조회</div>
+          <button
+            onClick={() => { setMode("fast"); resetOutput(); }}
+            className={`w-full text-left px-3 py-2 rounded-md text-sm ${
+              mode === "fast" ? "bg-indigo-600 text-white" : "hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            }`}
+          >
+            단기금융시장 건별매매내역조회
+          </button>
+          <button
+            onClick={() => { setMode("batch"); resetOutput(); }}
+            className={`w-full text-left px-3 py-2 rounded-md text-sm ${
+              mode === "batch" ? "bg-indigo-600 text-white" : "hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            }`}
+          >
+            통합 조회 (ISIN)
+          </button>
+          {apiList.map((api) => (
+            <button
+              key={api.id}
+              onClick={() => { setActiveId(api.id); setMode("single"); resetOutput(); }}
+              className={`w-full text-left px-3 py-2 rounded-md text-sm ${
+                mode === "single" && activeId === api.id ? "bg-indigo-600 text-white" : "hover:bg-neutral-100 dark:hover:bg-neutral-800"
+              }`}
+            >
+              {api.title}
+            </button>
+          ))}
         </nav>
       </aside>
       <main className="p-6 space-y-6">
         <div className="space-y-2">
           <h1 className="text-xl font-bold">
-            단기금융시장 건별매매내역조회
+            {mode === "fast" ? "단기금융시장 건별매매내역조회" : mode === "batch" ? "통합 조회 (ISIN)" : activeApi.title}
           </h1>
           <p className="text-sm text-muted-foreground">
-            세이브로 내부 API를 직접 호출하여 CP/CD/단기사채의 건별 매매내역을 빠르게 조회합니다.
+            {mode === "fast"
+              ? "세이브로 내부 API를 직접 호출하여 CP/CD/단기사채의 건별 매매내역을 빠르게 조회합니다."
+              : mode === "batch"
+                ? "입력한 ISIN으로 여러 API를 동시에 조회합니다."
+                : activeApi.description}
           </p>
         </div>
-        <CrawlCard
+        {mode === "single" && (
+          <div className="rounded-lg border p-4 bg-white dark:bg-neutral-900 shadow-sm">
+            <ParamsForm api={activeApi} onSubmit={(params) => call(activeApi.id, params)} />
+          </div>
+        )}
+        {mode === "batch" && (
+          <BatchCard onDone={(tables) => {
+            const hasData = tables.some((table) => table.rows.length > 0);
+            setEmptyNotice(hasData ? null : "데이터가 없습니다.");
+            setRows(null);
+            setBatchTables(tables);
+            setResult({ ok: true, status: 200, headers: {}, body: JSON.stringify({ tables }, null, 2) });
+            setParseType("batch");
+          }} />
+        )}
+        {mode === "fast" && (
+          <CrawlCard
             onDone={({ rows: crawlRows, result: crawlResult }) => {
               const hasData = crawlRows.length > 0;
               setEmptyNotice(hasData ? null : "데이터가 없습니다.");
@@ -449,6 +498,7 @@ export default function SeibroPage() {
               setParseType("crawl");
             }}
           />
+        )}
         <div className="rounded-lg border p-4 bg-white dark:bg-neutral-900 shadow-sm">
           <h3 className="font-semibold mb-2">결과</h3>
           {loading && <p className="text-sm text-muted-foreground">불러오는 중...</p>}
@@ -456,6 +506,9 @@ export default function SeibroPage() {
           {!loading && !error && emptyNotice && (
             <div className="flex items-center justify-between">
               <p className="text-sm text-neutral-500 dark:text-neutral-400">{emptyNotice}</p>
+              {mode === "single" && (
+                <Button size="sm" variant="outline" onClick={() => setMode("batch")}>통합 조회로 시도</Button>
+              )}
             </div>
           )}
           {!loading && !error && result && (
