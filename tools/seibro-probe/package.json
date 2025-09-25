@@ -1,0 +1,14 @@
+{
+  "name": "seibro-probe",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "probe": "node probe.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.46.0"
+  }
+}
+
+
