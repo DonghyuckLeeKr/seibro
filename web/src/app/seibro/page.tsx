@@ -444,7 +444,7 @@ export default function SeibroPage() {
               mode === "crawl" ? "bg-indigo-600 text-white" : "hover:bg-neutral-100 dark:hover:bg-neutral-800"
             }`}
           >
-            크롤링 조회
+            빠른 조회
           </button>
           {apiList.map((api) => (
             <button
@@ -466,7 +466,7 @@ export default function SeibroPage() {
               mode === "batch"
                 ? "통합 조회 (ISIN)"
                 : mode === "crawl"
-                  ? "크롤링 조회"
+                  ? "빠른 조회"
                   : activeApi.title
             }
           </h1>
@@ -475,7 +475,7 @@ export default function SeibroPage() {
               mode === "batch"
                 ? "입력한 ISIN으로 여러 API를 동시에 조회합니다."
                 : mode === "crawl"
-                  ? "세이브로 화면에서 CP/CD/단기사채 데이터를 크롤링해 보여줍니다."
+                  ? "세이브로 내부 API를 직접 호출하는 빠른 조회입니다."
                   : activeApi.description
             }
           </p>

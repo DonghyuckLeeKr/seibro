@@ -66,8 +66,9 @@ export async function POST(req: NextRequest) {
       return new Response(JSON.stringify({ error: "fromDate/toDate는 YYYYMMDD" }), { status: 400 });
     }
 
-    // Direct POST to SEIBro internal endpoint with constructed XML
-    const SEIBRO_URL = "https://seibro.or.kr/websquare/engine/proworks/callServletService.jsp";
+    // Prime session cookies, then POST to SEIBro internal endpoint with constructed XML
+    const SEIBRO_BASE = "https://seibro.or.kr";
+    const SEIBRO_URL = `${SEIBRO_BASE}/websquare/engine/proworks/callServletService.jsp`;
     // Map segment to SHORTM_FNCEGD_CD (12:CP, 13:CD, 14:단기사채). Empty means 전체
     const segCode = segment === "CP" ? "12" : segment === "CD" ? "13" : segment === "단기사채" ? "14" : "";
     const xml = `<?xml version="1.0" encoding="UTF-8"?>\n` +
@@ -83,14 +84,28 @@ export async function POST(req: NextRequest) {
       `<W2XPATH value="/IPORTAL/user/moneyMarke/BIP_CNTS04033V.xml"/>` +
       `</reqParam>`;
 
+    // 1) Warm up session to obtain cookies (JSESSIONID, WMONID)
+    const warm = await fetch(
+      `${SEIBRO_BASE}/websquare/control.jsp?w2xPath=/IPORTAL/user/moneyMarke/BIP_CNTS04033V.xml&menuNo=943`,
+      { method: "GET", headers: { "User-Agent": "Mozilla/5.0 (compatible; seibro-fast-fetch/1.0)" } }
+    );
+    const setCookie = warm.headers.get("set-cookie") || "";
+    const cookieHeader = setCookie
+      .split(",")
+      .map((p) => p.split(";")[0].trim())
+      .filter((p) => /JSESSIONID|WMONID/i.test(p))
+      .join("; ");
+
+    // 2) Data POST
     const resp = await fetch(SEIBRO_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/xml; charset=UTF-8",
-        Accept: "application/xml",
-        Origin: "https://seibro.or.kr",
-        Referer: "https://seibro.or.kr/websquare/control.jsp?w2xPath=/IPORTAL/user/moneyMarke/BIP_CNTS04033V.xml&menuNo=943",
+        Accept: "application/xml,text/xml,*/*",
+        Origin: SEIBRO_BASE,
+        Referer: `${SEIBRO_BASE}/websquare/control.jsp?w2xPath=/IPORTAL/user/moneyMarke/BIP_CNTS04033V.xml&menuNo=943`,
         "User-Agent": "Mozilla/5.0 (compatible; seibro-fast-fetch/1.0)",
+        ...(cookieHeader ? { Cookie: cookieHeader } : {}),
       },
       body: xml,
     });
