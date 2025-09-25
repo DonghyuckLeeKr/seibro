@@ -1,20 +1,8 @@
 import { NextRequest } from "next/server";
 import { chromium, Browser, Page } from "playwright";
 
-type CrawledRow = {
-  segment: "CP" | "CD" | "단기사채";
-  기준일자: string;
-  매도주체: string;
-  매수주체: string;
-  통화: string;
-  배매금액: string;
-  금리: string;
-  종목구분: string;
-  종목번호: string;
-  종목명: string;
-  발행일: string;
-  잔존만기: string;
-};
+// 파싱 결과를 유연하게 담기 위한 타입(강한 키 검사 회피)
+type Row = Record<string, string>;
 
 const TARGET_URL = "https://seibro.or.kr/websquare/control.jsp?w2xPath=/IPORTAL/user/moneyMarke/BIP_CNTS04033V.xml&menuNo=943";
 let browserInstance: Browser | null = null;
@@ -76,15 +64,16 @@ async function selectSegmentAndSearch(page: Page, segmentLabel: string) {
   await page.waitForLoadState("networkidle");
 }
 
-async function extractTable(page: Page, segment: CrawledRow["segment"]): Promise<CrawledRow[]> {
-  const rows: CrawledRow[] = [];
+async function extractTable(page: Page, segment: string): Promise<Row[]> {
+  const rows: Row[] = [];
   const table = page.locator("table").first();
   const rowCount = await table.locator("tbody tr").count();
   for (let i = 0; i < rowCount; i += 1) {
     const rowLocator = table.locator("tbody tr").nth(i);
     const cells = await rowLocator.locator("td").allInnerTexts();
     if (!cells.length) continue;
-    const [순번, 기준일자, 매도주체, 매수주체, 통화, 배매금액, 금리, 종목구분, 종목번호, 종목명, 발행일, 만기일, 잔존만기] = cells;
+    // 순번은 사용하지 않으므로 건너뜀
+    const [/* 순번 */, 기준일자, 매도주체, 매수주체, 통화, 배매금액, 금리, 종목구분, 종목번호, 종목명, 발행일, 만기일, 잔존만기] = cells;
     rows.push({
       segment,
       기준일자: 기준일자?.trim() ?? "",
@@ -115,13 +104,13 @@ async function crawl({ fromDate, toDate }: { fromDate: string; toDate: string })
     await loginIfNeeded(page);
     await selectDate(page, fromDate, toDate);
 
-    const segments: Array<{ label: string; value: CrawledRow["segment"] }> = [
+    const segments: Array<{ label: string; value: string }> = [
       { label: "CP", value: "CP" },
       { label: "CD", value: "CD" },
       { label: "단기사채", value: "단기사채" },
     ];
 
-    const results: CrawledRow[] = [];
+    const results: Row[] = [];
     for (const segment of segments) {
       await selectSegmentAndSearch(page, segment.label);
       const data = await extractTable(page, segment.value);
