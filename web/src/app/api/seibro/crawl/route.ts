@@ -53,7 +53,6 @@ async function loginIfNeeded(page: Page): Promise<void> {
 async function getLocatorInAnyFrame(page: Page, selector: string, timeoutMs = 60000): Promise<Locator> {
   const deadline = Date.now() + timeoutMs;
   // 반복적으로 탐색(프레임 지연 로드 대응)
-  /* eslint-disable no-await-in-loop */
   while (Date.now() < deadline) {
     // 1) 페이지 직하 탐색
     const direct = page.locator(selector);

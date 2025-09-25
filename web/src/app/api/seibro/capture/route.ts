@@ -47,7 +47,7 @@ async function clickSearchIfPresent(page: Page): Promise<void> {
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(_req: NextRequest) {
   let page: Page | null = null;
   const captured: CapturedCall[] = [];
   try {

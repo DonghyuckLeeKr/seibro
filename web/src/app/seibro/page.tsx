@@ -779,7 +779,7 @@ function DataGrid({ rows, csvName }: { rows: Array<Record<string, string>>; csvN
       if (hasValue) set.add(preferColumn.get(norm) || original);
     }
     return Array.from(set);
-  }, [selectedColumns, previewColumns, hideEmpty, nonEmptyRows, preferColumn]);
+  }, [selectedColumns, previewColumns, hideEmpty, nonEmptyRows, preferColumn, PREFERRED_COLUMNS]);
 
   const displayLabel = (key: string) => {
     if (LABEL_OVERRIDES[key]) return LABEL_OVERRIDES[key];

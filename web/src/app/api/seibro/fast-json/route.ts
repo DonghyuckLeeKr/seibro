@@ -14,10 +14,9 @@ function parseDataBlocks(xml: string): Array<Record<string, string>> {
   const blocks = xml.match(reBlock) || [];
   for (const block of blocks) {
     const row: Record<string, string> = {};
-    const reField = /<([A-Z0-9_]+)\s+value=\"([^\"]*)\"\/>/g;
-    let m: RegExpExecArray | null;
-    // eslint-disable-next-line no-cond-assign
-    while ((m = reField.exec(block))) {
+  const reField = /<([A-Z0-9_]+)\s+value=\"([^\"]*)\"\/>/g;
+  let m: RegExpExecArray | null;
+  while ((m = reField.exec(block)) !== null) {
       const key = m[1];
       const val = m[2];
       row[key] = val;

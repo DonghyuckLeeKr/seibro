@@ -27,7 +27,8 @@ export async function POST(req: NextRequest) {
       return new Response(JSON.stringify({ error: "capture failed" }), { status: 500 });
     }
     // Heuristic: find the EL1 data call
-    const calls: Array<any> = cap.calls;
+    type CapturedCall = { url: string; method: string; headers: Record<string, string>; postData?: string };
+    const calls: Array<CapturedCall> = cap.calls as Array<CapturedCall>;
     const dataCall = calls.find((c) => typeof c.postData === "string" && c.postData.includes("shortmFnceCasebyTdDetailsListEL1"))
       || calls.find((c) => typeof c.postData === "string" && c.postData.includes("shortmFnceCasebyTdDetailsList"))
       || calls[0];
