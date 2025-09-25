@@ -14,18 +14,31 @@ async function main() {
   const page = await context.newPage();
 
   const calls = [];
-  context.on('request', async (req) => {
+  const record = async (req) => {
     const url = req.url();
     if (url.includes('/websquare/engine/proworks/callServletService.jsp')) {
-      calls.push({
+      const entry = {
         method: req.method(),
         url,
         headers: req.headers(),
         postData: req.postData(),
         cookies: (await context.cookies()) || [],
-      });
+        status: undefined,
+        textSample: undefined,
+      };
+      try {
+        const res = await req.response();
+        if (res) {
+          entry.status = res.status();
+          const txt = await res.text();
+          entry.textSample = txt.slice(0, 400);
+        }
+      } catch {}
+      calls.push(entry);
     }
-  });
+  };
+  context.on('request', record);
+  context.on('requestfinished', record);
 
   await page.goto(TARGET, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1000);
@@ -50,10 +63,19 @@ async function main() {
     }, code);
   } catch {}
 
-  // press 조회
+  // press 조회 (우선 버튼을 찾아 클릭, 실패 시 Enter)
   await delay(500);
-  await page.keyboard.press('Enter');
-  await delay(2000);
+  try {
+    const btn = page.getByRole ? page.getByRole('button', { name: /조회/ }) : null;
+    if (btn) {
+      await btn.click({ timeout: 5000 });
+    } else {
+      await page.keyboard.press('Enter');
+    }
+  } catch {
+    await page.keyboard.press('Enter');
+  }
+  await delay(5000);
 
   console.log(JSON.stringify({ from, to, segment, captured: calls.slice(-3) }, null, 2));
   await browser.close();

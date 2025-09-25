@@ -71,17 +71,28 @@ export async function POST(req: NextRequest) {
     const SEIBRO_URL = `${SEIBRO_BASE}/websquare/engine/proworks/callServletService.jsp`;
     // Map segment to SHORTM_FNCEGD_CD (12:CP, 13:CD, 14:단기사채). Empty means 전체
     const segCode = segment === "CP" ? "12" : segment === "CD" ? "13" : segment === "단기사채" ? "14" : "";
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    const COMMON_SUFFIX =
+      `<TD_TPCD value=""/>` +
+      `<SHORTM_FNCE_INDTP_TPCD value=""/>` +
+      `<START_PAGE value="1"/>` +
+      `<END_PAGE value="10"/>` +
+      `<MENU_NO value="943"/>` +
+      `<CMM_BTN_ABBR_NM value="total_search,openall,print,hwp,word,pdf,seach,xls,"/>` +
+      `<W2XPATH value="/IPORTAL/user/moneyMarke/BIP_CNTS04033V.xml"/>`;
+
+    const xmlPrimary = `<?xml version="1.0" encoding="UTF-8"?>\n` +
       `<reqParam action="shortmFnceCasebyTdDetailsListEL1" task="ksd.safe.bip.moneyMarke.Trade.process.InstEventPTask">` +
       `<SHORTM_FNCEGD_CD value="${segCode}"/>` +
       `<STD_DT_FR value="${from}"/>` +
       `<STD_DT_TO value="${to}"/>` +
-      `<TD_TPCD value=""/>` +
-      `<SHORTM_FNCE_INDTP_TPCD value=""/>` +
-      `<START_PAGE value="1"/>` +
-      `<END_PAGE value="100"/>` +
-      `<MENU_NO value="943"/>` +
-      `<W2XPATH value="/IPORTAL/user/moneyMarke/BIP_CNTS04033V.xml"/>` +
+      COMMON_SUFFIX +
+      `</reqParam>`;
+    const xmlAlt = `<?xml version="1.0" encoding="UTF-8"?>\n` +
+      `<reqParam action="shortmFnceCasebyTdDetailsList" task="ksd.safe.bip.moneyMarke.Trade.process.InstEventPTask">` +
+      `<SHORTM_FNCEGD_CD value="${segCode}"/>` +
+      `<STD_DT_FR value="${from}"/>` +
+      `<STD_DT_TO value="${to}"/>` +
+      COMMON_SUFFIX +
       `</reqParam>`;
 
     // 1) Warm up session to obtain cookies (JSESSIONID, WMONID)
@@ -97,27 +108,32 @@ export async function POST(req: NextRequest) {
       .join("; ");
 
     // 2) Data POST
-    const doPost = async (seg: string) => fetch(SEIBRO_URL, {
+    const doPost = async (seg: string, xmlBody: string) => fetch(SEIBRO_URL, {
       method: "POST",
       headers: {
-        "Content-Type": "application/xml; charset=UTF-8",
-        Accept: "application/xml,text/xml,*/*",
+        "Content-Type": "application/xml; charset=\"UTF-8\"",
+        Accept: "application/xml",
         Origin: SEIBRO_BASE,
         Referer: `${SEIBRO_BASE}/websquare/control.jsp?w2xPath=/IPORTAL/user/moneyMarke/BIP_CNTS04033V.xml&menuNo=943`,
         "User-Agent": "Mozilla/5.0 (compatible; seibro-fast-fetch/1.0)",
         ...(cookieHeader ? { Cookie: cookieHeader } : {}),
       },
-      body: xml.replace(`<SHORTM_FNCEGD_CD value="${segCode}"/>`, `<SHORTM_FNCEGD_CD value="${seg}"/>`),
+      body: xmlBody.replace(`<SHORTM_FNCEGD_CD value=\"${segCode}\"/>`, `<SHORTM_FNCEGD_CD value=\"${seg}\"/>`),
     });
     
     // 2a) primary request
-    let resp = await doPost(segCode);
+    let resp = await doPost(segCode, xmlPrimary);
     let rawText = await resp.text();
     let rows = parseDataBlocks(String(rawText));
     
     // 2b) fallback: if no rows returned, try without segment filter (server-side)
     if (!rows || rows.length === 0) {
-      resp = await doPost("");
+      resp = await doPost("", xmlPrimary);
+      rawText = await resp.text();
+      rows = parseDataBlocks(String(rawText));
+    }
+    if (!rows || rows.length === 0) {
+      resp = await doPost(segCode, xmlAlt);
       rawText = await resp.text();
       rows = parseDataBlocks(String(rawText));
     }
