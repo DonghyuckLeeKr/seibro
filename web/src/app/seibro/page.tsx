@@ -519,12 +519,21 @@ export default function SeibroPage() {
                   rows: {(batchTables ? batchTables.reduce((sum, t) => sum + t.rows.length, 0) : rows?.length || 0)} • parsed: {parseType}
                 </div>
               </div>
-              {rows && rows.length > 0 ? (
+              {batchTables && batchTables.length > 0 ? (
+                <div className="space-y-6">
+                  {batchTables.map((table) => (
+                    <div key={table.id} className="space-y-2">
+                      <h4 className="text-sm font-semibold">{table.name}</h4>
+                      {table.rows.length > 0 ? (
+                        <DataGrid rows={table.rows} />
+                      ) : (
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400 border rounded-md p-3">데이터 없음</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : rows && rows.length > 0 ? (
                 <DataGrid rows={rows} csvName={parseType === "crawl" ? "seibro-crawl" : undefined} />
-              ) : parseType !== "crawl" ? (
-                <pre className="text-xs overflow-auto whitespace-pre-wrap break-words bg-neutral-50 dark:bg-neutral-900 p-3 rounded border">
-                  {result.body}
-                </pre>
               ) : (
                 <div className="text-xs text-neutral-500 dark:text-neutral-400 border rounded-md p-3">데이터 없음</div>
               )}
