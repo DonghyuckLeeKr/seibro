@@ -54,6 +54,10 @@ export const COLUMN_ORDER: Array<{ key: string; label: string }> = [
   { key: "RED_DT", label: "만기일" },
   { key: "GOODS_LEF_XPIR_TPCD_NM", label: "잔존만기" },
   { key: "NUM", label: "순번" },
+  { key: "SELLER_INDTP_TPCD", label: "매도유형코드" },
+  { key: "BUYER_INDTP_TPCD", label: "매수유형코드" },
+  { key: "SHORTM_FNCEGD_CD", label: "증권구분코드" },
+  { key: "GOODS_LEF_XPIR_TPCD", label: "잔존만기코드" },
 ];
 
 export async function POST(req: NextRequest) {

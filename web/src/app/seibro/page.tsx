@@ -606,6 +606,10 @@ function DataGrid({ rows, csvName }: { rows: Array<Record<string, string>>; csvN
     RED_DT: "만기일",
     GOODS_LEF_XPIR_TPCD_NM: "잔존만기",
     NUM: "순번",
+    SELLER_INDTP_TPCD: "매도유형코드",
+    BUYER_INDTP_TPCD: "매수유형코드",
+    SHORTM_FNCEGD_CD: "증권구분코드",
+    GOODS_LEF_XPIR_TPCD: "잔존만기코드",
   };
 
   // normalize helper and preferred column map for batch results
@@ -1258,13 +1262,13 @@ function CrawlCard({ onDone }: CrawlCardProps) {
       {previewRows.length > 0 && (
         <div className="mt-4 text-xs text-neutral-600 dark:text-neutral-400 space-y-2">
           <div className="font-semibold">샘플</div>
-          {previewRows.map((row, idx) => (
+          {previewRows.slice(0, 5).map((row, idx) => (
             <div key={idx} className="rounded border px-3 py-2 bg-neutral-50 dark:bg-neutral-900/60">
               <div className="flex flex-wrap gap-3">
-                <span className="font-medium">{row.segment || row["종목구분"] || "-"}</span>
-                <span>{row["종목명"] || row["종목번호"] || ""}</span>
-                <span>금리 {row["금리"] || "-"}</span>
-                <span>금액 {row["배매금액"] || row["금액"] || "-"}</span>
+                <span className="font-medium">{row.segment || row["종목구분"] || row["SHORTM_FNCEGD_CD_NM"] || "-"}</span>
+                <span>{row["종목명"] || row["종목번호"] || row["SECN_NM"] || row["ISIN"] || ""}</span>
+                <span>금리 {row["금리"] || row["CIRCL_PRATE"] || "-"}</span>
+                <span>금액 {row["배매금액"] || row["금액"] || row["SETL_AMT"] || "-"}</span>
               </div>
             </div>
           ))}
