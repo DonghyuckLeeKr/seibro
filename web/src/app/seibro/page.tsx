@@ -1133,7 +1133,7 @@ function CrawlCard({ onDone }: CrawlCardProps) {
         throw new Error(data.error || `HTTP ${res.status}`);
       }
       const rows = Array.isArray(data.rows) ? data.rows : [];
-      const counts: Record<string, number> = { [segment || "전체"]: rows.length } as Record<string, number>;
+      const counts: Record<string, number> = { [segment || "CP"]: rows.length } as Record<string, number>;
       setSummary(counts);
       setPreviewRows(rows.slice(0, 5));
       setLastRunAt(new Date());
@@ -1239,9 +1239,6 @@ function CrawlCard({ onDone }: CrawlCardProps) {
             {s.label}
           </label>
         ))}
-        <label className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs cursor-pointer">
-          <input type="radio" name="segment" checked={segment === ""} onChange={() => setSegment("")} /> 전체
-        </label>
       </div>
       {error && <div className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</div>}
       <div className="mt-4 flex items-center gap-2 flex-wrap">
